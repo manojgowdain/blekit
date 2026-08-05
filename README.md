@@ -88,6 +88,24 @@ await startBackgroundService({
 });
 ```
 
+## Expo Plugin
+
+If you are using Expo, `blekit` includes a config plugin to automatically configure Android background services and Bluetooth permissions.
+
+Add the plugin to your `app.json` (or `app.config.js`):
+
+```json
+{
+  "expo": {
+    "plugins": [
+      "blekit/plugin"
+    ]
+  }
+}
+```
+
+*Note: You can also just use `"blekit"` in the plugins array since the package natively exposes the plugin!*
+
 ## License
 
 MIT
