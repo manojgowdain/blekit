@@ -1,0 +1,9 @@
+export { consoleApp, getCurrentStatus, initializeLogger } from './src/handlelogs.js';
+export { backgroundServiceOptions, cancelAllNotifications, cancelNotification, configureNotifications, getLastNotificationResponse, isBackgroundServiceRunning, requestNotificationPermission, sendNormalNotification, sleep, startBackgroundService, stopBackgroundService, subscribeToBackgroundBle, subscribeToBackgroundTicks, subscribeToNotificationTaps, updatePersistentNotification, veryIntensiveTask } from './src/bgn.js';
+export { checkForOTAUpdates } from './src/update.js';
+export { autoConnect, connect, destroy, disconnect, getConnectedDevice, getServices, hasActiveMonitor, isConnected, monitorData, monitorHealthMetrics, onStateChange, read, requestBlePermission, scanDevices, sendCommand, stopMonitoring, stopScan, unpair } from './src/ble.js';
+export { default as getDeviceInfo } from './src/info.js';
+import 'react-native';
+import 'expo-notifications';
+import 'react-native-ble-plx';
+import '@react-native-community/netinfo';
