@@ -23,17 +23,27 @@ export const HealthReadingSchema = z.object({
   steps: z.number().finite().min(0),
 });
 
-// Output shape returned to callers via monitorHealthMetrics's callback.
 export const HealthMetricsSchema = z.object({
-  heartRate: z.number(),
-  spo2: z.number(),
+  heartRate: z.object({
+    value: z.number(),
+    measuring: z.boolean(), // true while hr is 0 / not yet available from the device
+  }),
+  spo2: z.object({
+    value: z.number(),
+    measuring: z.boolean(),
+  }),
   temperature: z.object({
     celsius: z.number(),
     fahrenheit: z.number(),
     kelvin: z.number(),
-    bodyTemperatureStatus: z.enum(["Low", "Slightly Low", "Normal", "Elevated", "Fever"]),
+    bodyTemperatureStatus: z.union([
+      z.enum(["Low", "Slightly Low", "Normal", "Elevated", "Fever"]),
+      z.literal("N/A"),
+    ]),
+    measuring: z.boolean(),
   }),
   battery: z.number(),
+  measuring: z.boolean(), // true if ANY of hr/spo2/temp is currently 0 / unavailable
   ppg: z.object({
     steps: z.number(),
     calories: z.number(),
@@ -47,12 +57,15 @@ export const HealthMetricsSchema = z.object({
     }),
   }),
   stress: z.object({
-    stressScore: z.number().min(0).max(100),
-    stressLevel: z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
-    readinessScore: z.number().min(0).max(100),
-    productivityScore: z.number().min(0).max(100),
-    overallHealthScore: z.number().min(0).max(100),
-    energyScore: z.number().min(0).max(100),
+    stressScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    stressLevel: z.union([
+      z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
+      z.literal("N/A"),
+    ]),
+    readinessScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    productivityScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    overallHealthScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    energyScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
   }),
   activityLevel: z.number().min(0).max(100),
   hydrationReminder: z.object({
@@ -64,9 +77,7 @@ export const HealthMetricsSchema = z.object({
     suggestedDrinkLiters: z.number().min(0).max(5),
     shouldNotify: z.boolean(),
   }),
-  // raw: z.string(),
 });
-
 export const DeviceIdSchema = z.string().min(1, "deviceId must be a non-empty string");
 
 export const DeviceObjectSchema = z

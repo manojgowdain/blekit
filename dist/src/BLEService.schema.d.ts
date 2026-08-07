@@ -9,21 +9,29 @@ declare const HealthReadingSchema: z.ZodObject<{
     steps: z.ZodNumber;
 }, z.core.$strip>;
 declare const HealthMetricsSchema: z.ZodObject<{
-    heartRate: z.ZodNumber;
-    spo2: z.ZodNumber;
+    heartRate: z.ZodObject<{
+        value: z.ZodNumber;
+        measuring: z.ZodBoolean;
+    }, z.core.$strip>;
+    spo2: z.ZodObject<{
+        value: z.ZodNumber;
+        measuring: z.ZodBoolean;
+    }, z.core.$strip>;
     temperature: z.ZodObject<{
         celsius: z.ZodNumber;
         fahrenheit: z.ZodNumber;
         kelvin: z.ZodNumber;
-        bodyTemperatureStatus: z.ZodEnum<{
+        bodyTemperatureStatus: z.ZodUnion<readonly [z.ZodEnum<{
             Low: "Low";
             "Slightly Low": "Slightly Low";
             Normal: "Normal";
             Elevated: "Elevated";
             Fever: "Fever";
-        }>;
+        }>, z.ZodLiteral<"N/A">]>;
+        measuring: z.ZodBoolean;
     }, z.core.$strip>;
     battery: z.ZodNumber;
+    measuring: z.ZodBoolean;
     ppg: z.ZodObject<{
         steps: z.ZodNumber;
         calories: z.ZodNumber;
@@ -37,18 +45,18 @@ declare const HealthMetricsSchema: z.ZodObject<{
         }, z.core.$strip>;
     }, z.core.$strip>;
     stress: z.ZodObject<{
-        stressScore: z.ZodNumber;
-        stressLevel: z.ZodEnum<{
+        stressScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        stressLevel: z.ZodUnion<readonly [z.ZodEnum<{
             Normal: "Normal";
             Elevated: "Elevated";
             Relaxed: "Relaxed";
             High: "High";
             "Very High": "Very High";
-        }>;
-        readinessScore: z.ZodNumber;
-        productivityScore: z.ZodNumber;
-        overallHealthScore: z.ZodNumber;
-        energyScore: z.ZodNumber;
+        }>, z.ZodLiteral<"N/A">]>;
+        readinessScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        productivityScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        overallHealthScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        energyScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
     }, z.core.$strip>;
     activityLevel: z.ZodNumber;
     hydrationReminder: z.ZodObject<{

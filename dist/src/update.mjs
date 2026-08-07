@@ -261,15 +261,28 @@ var HealthReadingSchema = z.object({
   steps: z.number().finite().min(0)
 });
 var HealthMetricsSchema = z.object({
-  heartRate: z.number(),
-  spo2: z.number(),
+  heartRate: z.object({
+    value: z.number(),
+    measuring: z.boolean()
+    // true while hr is 0 / not yet available from the device
+  }),
+  spo2: z.object({
+    value: z.number(),
+    measuring: z.boolean()
+  }),
   temperature: z.object({
     celsius: z.number(),
     fahrenheit: z.number(),
     kelvin: z.number(),
-    bodyTemperatureStatus: z.enum(["Low", "Slightly Low", "Normal", "Elevated", "Fever"])
+    bodyTemperatureStatus: z.union([
+      z.enum(["Low", "Slightly Low", "Normal", "Elevated", "Fever"]),
+      z.literal("N/A")
+    ]),
+    measuring: z.boolean()
   }),
   battery: z.number(),
+  measuring: z.boolean(),
+  // true if ANY of hr/spo2/temp is currently 0 / unavailable
   ppg: z.object({
     steps: z.number(),
     calories: z.number(),
@@ -283,12 +296,15 @@ var HealthMetricsSchema = z.object({
     })
   }),
   stress: z.object({
-    stressScore: z.number().min(0).max(100),
-    stressLevel: z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
-    readinessScore: z.number().min(0).max(100),
-    productivityScore: z.number().min(0).max(100),
-    overallHealthScore: z.number().min(0).max(100),
-    energyScore: z.number().min(0).max(100)
+    stressScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    stressLevel: z.union([
+      z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
+      z.literal("N/A")
+    ]),
+    readinessScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    productivityScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    overallHealthScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    energyScore: z.union([z.number().min(0).max(100), z.literal("N/A")])
   }),
   activityLevel: z.number().min(0).max(100),
   hydrationReminder: z.object({
@@ -300,7 +316,6 @@ var HealthMetricsSchema = z.object({
     suggestedDrinkLiters: z.number().min(0).max(5),
     shouldNotify: z.boolean()
   })
-  // raw: z.string(),
 });
 var DeviceIdSchema = z.string().min(1, "deviceId must be a non-empty string");
 var DeviceObjectSchema = z.object({
@@ -560,7 +575,9 @@ var BLEService = class {
     }
     const parsed = DeviceIdSchema.safeParse(deviceId);
     if (!parsed.success) {
-      throw new Error(`autoConnect() invalid deviceId: ${parsed.error.message}`);
+      throw new Error(
+        `autoConnect() invalid deviceId: ${parsed.error.message}`
+      );
     }
     if (this.connectionPromise) {
       return this.connectionPromise;
@@ -569,7 +586,9 @@ var BLEService = class {
     this.connectionPromise = (async () => {
       try {
         this.stopMonitoring();
-        const connectedDevices = await this.manager.connectedDevices([SERVICE_UUID]);
+        const connectedDevices = await this.manager.connectedDevices([
+          SERVICE_UUID
+        ]);
         this.device = connectedDevices.find((device) => device.id === parsed.data) || await this.manager.connectToDevice(parsed.data, {
           autoConnect: false,
           timeout: 15e3
@@ -674,7 +693,9 @@ var BLEService = class {
           const rawResult = RawPayloadSchema.safeParse(raw);
           if (!rawResult.success) {
             callback(
-              new Error(`Invalid BLE payload "${raw}": ${rawResult.error.message}`),
+              new Error(
+                `Invalid BLE payload "${raw}": ${rawResult.error.message}`
+              ),
               null
             );
             return;
@@ -690,7 +711,9 @@ var BLEService = class {
           });
           if (!readingResult.success) {
             callback(
-              new Error(`BLE payload out of range "${raw}": ${readingResult.error.message}`),
+              new Error(
+                `BLE payload out of range "${raw}": ${readingResult.error.message}`
+              ),
               null
             );
             return;
@@ -702,14 +725,27 @@ var BLEService = class {
             battery: validBattery,
             steps: validSteps
           } = readingResult.data;
-          const smoothedHr = Math.round(this.hrFilter.filter(validHr));
-          const smoothedSpo2 = Math.round(this.spo2Filter.filter(validSpo2));
-          const smoothedTempC = Number(this.tempFilter.filter(validTempC).toFixed(2));
+          const hrHasReading = validHr > 0;
+          const spo2HasReading = validSpo2 > 0;
+          const tempHasReading = validTempC > 0;
+          if (hrHasReading) this.hrFilter.filter(validHr);
+          if (spo2HasReading) this.spo2Filter.filter(validSpo2);
+          if (tempHasReading) this.tempFilter.filter(validTempC);
+          const hrReady = this.hrFilter.value !== null;
+          const spo2Ready = this.spo2Filter.value !== null;
+          const tempReady = this.tempFilter.value !== null;
+          const allReady = hrReady && spo2Ready && tempReady;
+          const hrMeasuring = !hrReady;
+          const spo2Measuring = !spo2Ready;
+          const tempMeasuring = !tempReady;
+          const smoothedHr = hrReady ? Math.round(this.hrFilter.value) : 0;
+          const smoothedSpo2 = spo2Ready ? Math.round(this.spo2Filter.value) : 0;
+          const smoothedTempC = tempReady ? Number(this.tempFilter.value.toFixed(2)) : 0;
           const tempF = Number((smoothedTempC * 9 / 5 + 32).toFixed(2));
           const tempK = Number((smoothedTempC + 273.15).toFixed(2));
           const calories = Number((validSteps * 0.04).toFixed(2));
           const distance = Number((validSteps * 0.75 / 1e3).toFixed(2));
-          const stress = calculateStress(smoothedHr, smoothedSpo2, smoothedTempC);
+          const rawStress = allReady ? calculateStress(smoothedHr, smoothedSpo2, smoothedTempC) : { stressScore: 0, stressLevel: "Normal" };
           const elapsedHours = this.monitorStartedAt ? (Date.now() - this.monitorStartedAt) / 36e5 : 0;
           const healthScores = calculateHealthScores({
             hr: smoothedHr,
@@ -718,7 +754,7 @@ var BLEService = class {
             steps: validSteps,
             calories,
             distance,
-            stressScore: stress.stressScore,
+            stressScore: rawStress.stressScore,
             elapsedHours,
             goalSteps,
             goalCalories,
@@ -728,39 +764,43 @@ var BLEService = class {
             waterIntakeLiters
           });
           const healthMetrics = {
-            heartRate: smoothedHr,
-            spo2: smoothedSpo2,
+            heartRate: { value: smoothedHr, measuring: hrMeasuring },
+            spo2: { value: smoothedSpo2, measuring: spo2Measuring },
             temperature: {
               celsius: smoothedTempC,
               fahrenheit: tempF,
               kelvin: tempK,
-              bodyTemperatureStatus: healthScores.bodyTemperatureStatus
+              // Temp status only needs temp itself, not hr/spo2.
+              bodyTemperatureStatus: tempReady ? healthScores.bodyTemperatureStatus : "N/A",
+              measuring: tempMeasuring
             },
             battery: validBattery,
+            measuring: hrMeasuring || spo2Measuring || tempMeasuring,
             ppg: {
               steps: validSteps,
               calories,
               distance,
-              // km
               walkingSpeedKmh: healthScores.walkingSpeedKmh,
               goal: healthScores.goal
             },
             stress: {
-              stressScore: stress.stressScore,
-              stressLevel: stress.stressLevel,
-              readinessScore: healthScores.readinessScore,
-              productivityScore: healthScores.productivityScore,
-              overallHealthScore: healthScores.overallHealthScore,
-              energyScore: healthScores.energyScore
+              stressScore: allReady ? rawStress.stressScore : "N/A",
+              stressLevel: allReady ? rawStress.stressLevel : "N/A",
+              // These blend hr+spo2+temp+stress, so they wait on allReady too.
+              readinessScore: allReady ? healthScores.readinessScore : "N/A",
+              productivityScore: allReady ? healthScores.productivityScore : "N/A",
+              overallHealthScore: allReady ? healthScores.overallHealthScore : "N/A",
+              energyScore: allReady ? healthScores.energyScore : "N/A"
             },
             activityLevel: healthScores.activityLevel,
             hydrationReminder: healthScores.hydrationReminder
-            // raw,
           };
           const outputResult = HealthMetricsSchema.safeParse(healthMetrics);
           if (!outputResult.success) {
             callback(
-              new Error(`Failed to build healthMetrics object: ${outputResult.error.message}`),
+              new Error(
+                `Failed to build healthMetrics object: ${outputResult.error.message}`
+              ),
               null
             );
             return;
@@ -834,11 +874,15 @@ var BLEService = class {
     if (!this.device) throw new Error("No Device Connected");
     const commandResult = Base64Schema.safeParse(base64Command);
     if (!commandResult.success) {
-      throw new Error(`sendCommand() invalid base64Command: ${commandResult.error.message}`);
+      throw new Error(
+        `sendCommand() invalid base64Command: ${commandResult.error.message}`
+      );
     }
     const uuidResult = CharacteristicUUIDSchema.safeParse(characteristicUUID);
     if (!uuidResult.success) {
-      throw new Error(`sendCommand() invalid characteristicUUID: ${uuidResult.error.message}`);
+      throw new Error(
+        `sendCommand() invalid characteristicUUID: ${uuidResult.error.message}`
+      );
     }
     try {
       return await this.device.writeCharacteristicWithResponseForService(

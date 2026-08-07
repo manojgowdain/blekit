@@ -81,13 +81,13 @@ function calculateHydrationReminder({
   waterIntakeLiters = 0,
 }) {
   const activityExtraLiters = Number(
-    (distance * 0.03 + (calories / 1000) * 0.5).toFixed(2)
+    (distance * 0.03 + (calories / 1000) * 0.5).toFixed(2),
   );
   const targetLiters = Number(
-    Math.min(waterGoalLiters + activityExtraLiters, 5).toFixed(2)
+    Math.min(waterGoalLiters + activityExtraLiters, 5).toFixed(2),
   );
   const remainingLiters = Number(
-    Math.max(targetLiters - waterIntakeLiters, 0).toFixed(2)
+    Math.max(targetLiters - waterIntakeLiters, 0).toFixed(2),
   );
 
   return {
@@ -126,15 +126,15 @@ function calculateHealthScores({
   const hrPenalty = 100 - hrScore;
   const oxygenHealth = spo2Score;
   const wellness = clampScore(
-    0.35 * hrScore + 0.35 * stressScoreNorm + 0.2 * spo2Score + 0.1 * tempScore
+    0.35 * hrScore + 0.35 * stressScoreNorm + 0.2 * spo2Score + 0.1 * tempScore,
   );
 
   const readinessScore = clampScore(
-    0.35 * hrScore + 0.35 * stressScoreNorm + 0.2 * spo2Score + 0.1 * tempScore
+    0.35 * hrScore + 0.35 * stressScoreNorm + 0.2 * spo2Score + 0.1 * tempScore,
   );
   const activityLevel = activityScore;
   const energyScore = clampScore(
-    100 - (0.3 * activityScore + 0.4 * stressPenalty + 0.3 * hrPenalty)
+    100 - (0.3 * activityScore + 0.4 * stressPenalty + 0.3 * hrPenalty),
   );
   const hydrationReminder = calculateHydrationReminder({
     calories,
@@ -151,7 +151,7 @@ function calculateHealthScores({
     walkingSpeedKmh: calculateGoalPercent(walkingSpeedKmh, goalWalkingSpeedKmh),
   };
   const productivityScore = clampScore(
-    0.4 * wellness + 0.3 * energyScore + 0.3 * readinessScore
+    0.4 * wellness + 0.3 * energyScore + 0.3 * readinessScore,
   );
   const overallHealthScore = clampScore(
     0.2 * hrScore +
@@ -159,7 +159,7 @@ function calculateHealthScores({
       0.15 * activityScore +
       0.15 * wellness +
       0.15 * readinessScore +
-      0.15 * stressScoreNorm
+      0.15 * stressScoreNorm,
   );
 
   return {
@@ -230,7 +230,7 @@ class BLEService {
     }
 
     const result = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
     );
 
     return result === "granted";
@@ -290,7 +290,7 @@ class BLEService {
     const parsed = DeviceObjectSchema.safeParse(device);
     if (!parsed.success) {
       throw new Error(
-        `connect() expects a scanned device object with a connect() method: ${parsed.error.message}`
+        `connect() expects a scanned device object with a connect() method: ${parsed.error.message}`,
       );
     }
 
@@ -321,7 +321,9 @@ class BLEService {
 
     const parsed = DeviceIdSchema.safeParse(deviceId);
     if (!parsed.success) {
-      throw new Error(`autoConnect() invalid deviceId: ${parsed.error.message}`);
+      throw new Error(
+        `autoConnect() invalid deviceId: ${parsed.error.message}`,
+      );
     }
 
     if (this.connectionPromise) {
@@ -334,7 +336,9 @@ class BLEService {
       try {
         this.stopMonitoring();
 
-        const connectedDevices = await this.manager.connectedDevices([SERVICE_UUID]);
+        const connectedDevices = await this.manager.connectedDevices([
+          SERVICE_UUID,
+        ]);
         this.device =
           connectedDevices.find((device) => device.id === parsed.data) ||
           (await this.manager.connectToDevice(parsed.data, {
@@ -407,6 +411,7 @@ class BLEService {
   // instead of appearing as a spike in the UI. Battery and steps
   // pass through unfiltered since they're not noisy analog signals.
   // ==========================
+
   monitorHealthMetrics(callback: any, options: any = {}) {
     const {
       replaceExisting = true,
@@ -460,15 +465,13 @@ class BLEService {
         try {
           const raw = atob(characteristic.value).trim();
 
-          // Expected BLE payload:
-          // HR,SPO2,TEMP_C,BATTERY,STEPS
-          // Example: 72,98,36.5,85,5234
-
           const rawResult = RawPayloadSchema.safeParse(raw);
           if (!rawResult.success) {
             callback(
-              new Error(`Invalid BLE payload "${raw}": ${rawResult.error.message}`),
-              null
+              new Error(
+                `Invalid BLE payload "${raw}": ${rawResult.error.message}`,
+              ),
+              null,
             );
             return;
           }
@@ -486,8 +489,10 @@ class BLEService {
 
           if (!readingResult.success) {
             callback(
-              new Error(`BLE payload out of range "${raw}": ${readingResult.error.message}`),
-              null
+              new Error(
+                `BLE payload out of range "${raw}": ${readingResult.error.message}`,
+              ),
+              null,
             );
             return;
           }
@@ -500,23 +505,55 @@ class BLEService {
             steps: validSteps,
           } = readingResult.data;
 
-          // Smooth the noisy analog channels. A single dropped-bit
-          // or motion-artifact sample gets pulled back toward the
-          // recent trend instead of passing straight through.
-          const smoothedHr = Math.round(this.hrFilter.filter(validHr));
-          const smoothedSpo2 = Math.round(this.spo2Filter.filter(validSpo2));
-          const smoothedTempC = Number(this.tempFilter.filter(validTempC).toFixed(2));
+          // The device sends 0 for hr/spo2/temp while that specific
+          // sensor hasn't produced a real reading yet, or drops one
+          // mid-stream. Treat 0 as "not measured this tick" — don't
+          // feed it into the Kalman filter, and flag it so the UI can
+          // show "measuring..." for that one parameter.
+          const hrHasReading = validHr > 0;
+          const spo2HasReading = validSpo2 > 0;
+          const tempHasReading = validTempC > 0;
+
+          if (hrHasReading) this.hrFilter.filter(validHr);
+          if (spo2HasReading) this.spo2Filter.filter(validSpo2);
+          if (tempHasReading) this.tempFilter.filter(validTempC);
+
+          const hrReady = this.hrFilter.value !== null;
+          const spo2Ready = this.spo2Filter.value !== null;
+          const tempReady = this.tempFilter.value !== null;
+          const allReady = hrReady && spo2Ready && tempReady;
+
+          // Per-parameter "still waiting on this sensor" flags.
+          const hrMeasuring = !hrReady;
+          const spo2Measuring = !spo2Ready;
+          const tempMeasuring = !tempReady;
+
+          const smoothedHr = hrReady
+            ? Math.round(this.hrFilter.value as number)
+            : 0;
+          const smoothedSpo2 = spo2Ready
+            ? Math.round(this.spo2Filter.value as number)
+            : 0;
+          const smoothedTempC = tempReady
+            ? Number((this.tempFilter.value as number).toFixed(2))
+            : 0;
 
           const tempF = Number(((smoothedTempC * 9) / 5 + 32).toFixed(2));
           const tempK = Number((smoothedTempC + 273.15).toFixed(2));
 
-          // Approximate calculations
           const calories = Number((validSteps * 0.04).toFixed(2));
           const distance = Number(((validSteps * 0.75) / 1000).toFixed(2));
-          const stress = calculateStress(smoothedHr, smoothedSpo2, smoothedTempC);
+
+          // Only trust stress once hr, spo2, AND temp have each given
+          // us a real reading — one sensor lagging shouldn't poison it.
+          const rawStress = allReady
+            ? calculateStress(smoothedHr, smoothedSpo2, smoothedTempC)
+            : { stressScore: 0, stressLevel: "Normal" as const };
+
           const elapsedHours = this.monitorStartedAt
             ? (Date.now() - this.monitorStartedAt) / 3600000
             : 0;
+
           const healthScores = calculateHealthScores({
             hr: smoothedHr,
             spo2: smoothedSpo2,
@@ -524,7 +561,7 @@ class BLEService {
             steps: validSteps,
             calories,
             distance,
-            stressScore: stress.stressScore,
+            stressScore: rawStress.stressScore,
             elapsedHours,
             goalSteps,
             goalCalories,
@@ -535,40 +572,51 @@ class BLEService {
           });
 
           const healthMetrics = {
-            heartRate: smoothedHr,
-            spo2: smoothedSpo2,
+            heartRate: { value: smoothedHr, measuring: hrMeasuring },
+            spo2: { value: smoothedSpo2, measuring: spo2Measuring },
             temperature: {
               celsius: smoothedTempC,
               fahrenheit: tempF,
               kelvin: tempK,
-              bodyTemperatureStatus: healthScores.bodyTemperatureStatus,
+              // Temp status only needs temp itself, not hr/spo2.
+              bodyTemperatureStatus: tempReady
+                ? healthScores.bodyTemperatureStatus
+                : "N/A",
+              measuring: tempMeasuring,
             },
             battery: validBattery,
+            measuring: hrMeasuring || spo2Measuring || tempMeasuring,
             ppg: {
               steps: validSteps,
               calories,
-              distance, // km
+              distance,
               walkingSpeedKmh: healthScores.walkingSpeedKmh,
               goal: healthScores.goal,
             },
             stress: {
-              stressScore: stress.stressScore,
-              stressLevel: stress.stressLevel,
-              readinessScore: healthScores.readinessScore,
-              productivityScore: healthScores.productivityScore,
-              overallHealthScore: healthScores.overallHealthScore,
-              energyScore: healthScores.energyScore,
+              stressScore: allReady ? rawStress.stressScore : "N/A",
+              stressLevel: allReady ? rawStress.stressLevel : "N/A",
+              // These blend hr+spo2+temp+stress, so they wait on allReady too.
+              readinessScore: allReady ? healthScores.readinessScore : "N/A",
+              productivityScore: allReady
+                ? healthScores.productivityScore
+                : "N/A",
+              overallHealthScore: allReady
+                ? healthScores.overallHealthScore
+                : "N/A",
+              energyScore: allReady ? healthScores.energyScore : "N/A",
             },
             activityLevel: healthScores.activityLevel,
             hydrationReminder: healthScores.hydrationReminder,
-            // raw,
           };
 
           const outputResult = HealthMetricsSchema.safeParse(healthMetrics);
           if (!outputResult.success) {
             callback(
-              new Error(`Failed to build healthMetrics object: ${outputResult.error.message}`),
-              null
+              new Error(
+                `Failed to build healthMetrics object: ${outputResult.error.message}`,
+              ),
+              null,
             );
             return;
           }
@@ -577,7 +625,7 @@ class BLEService {
         } catch (err) {
           callback(err, null);
         }
-      }
+      },
     );
   }
 
@@ -605,7 +653,10 @@ class BLEService {
 
   isMonitorCancellationError(error) {
     const message = String(error?.message || error || "").toLowerCase();
-    return message.includes("operation was cancelled") || message.includes("operation canceled");
+    return (
+      message.includes("operation was cancelled") ||
+      message.includes("operation canceled")
+    );
   }
 
   scheduleMonitorRestart(callback, options) {
@@ -634,29 +685,28 @@ class BLEService {
     });
   }
 
-
   async syncDeviceTime() {
-  if (!this.device) {
-    throw new Error("No Device Connected");
+    if (!this.device) {
+      throw new Error("No Device Connected");
+    }
+
+    const now = new Date();
+
+    const pad = (n) => String(n).padStart(2, "0");
+
+    // Format: YYYY-MM-DD HH:mm:ss
+    const timeString =
+      `${now.getFullYear()}-` +
+      `${pad(now.getMonth() + 1)}-` +
+      `${pad(now.getDate())} ` +
+      `${pad(now.getHours())}:` +
+      `${pad(now.getMinutes())}:` +
+      `${pad(now.getSeconds())}`;
+
+    const base64Time = btoa(timeString);
+
+    return this.sendCommand(base64Time, CHARACTERISTICS.time);
   }
-
-  const now = new Date();
-
-  const pad = (n) => String(n).padStart(2, "0");
-
-  // Format: YYYY-MM-DD HH:mm:ss
-  const timeString =
-    `${now.getFullYear()}-` +
-    `${pad(now.getMonth() + 1)}-` +
-    `${pad(now.getDate())} ` +
-    `${pad(now.getHours())}:` +
-    `${pad(now.getMinutes())}:` +
-    `${pad(now.getSeconds())}`;
-
-  const base64Time = btoa(timeString);
-
-  return this.sendCommand(base64Time, CHARACTERISTICS.time);
-}
 
   // ==========================
   // Write Command
@@ -670,25 +720,29 @@ class BLEService {
 
     const commandResult = Base64Schema.safeParse(base64Command);
     if (!commandResult.success) {
-      throw new Error(`sendCommand() invalid base64Command: ${commandResult.error.message}`);
+      throw new Error(
+        `sendCommand() invalid base64Command: ${commandResult.error.message}`,
+      );
     }
 
     const uuidResult = CharacteristicUUIDSchema.safeParse(characteristicUUID);
     if (!uuidResult.success) {
-      throw new Error(`sendCommand() invalid characteristicUUID: ${uuidResult.error.message}`);
+      throw new Error(
+        `sendCommand() invalid characteristicUUID: ${uuidResult.error.message}`,
+      );
     }
 
     try {
       return await this.device.writeCharacteristicWithResponseForService(
         SERVICE_UUID,
         uuidResult.data,
-        commandResult.data
+        commandResult.data,
       );
     } catch {
       return await this.device.writeCharacteristicWithoutResponseForService(
         SERVICE_UUID,
         uuidResult.data,
-        commandResult.data
+        commandResult.data,
       );
     }
   }
@@ -706,7 +760,7 @@ class BLEService {
 
     const value = await this.device.readCharacteristicForService(
       SERVICE_UUID,
-      uuidResult.data
+      uuidResult.data,
     );
 
     return value;

@@ -40,15 +40,28 @@ var HealthReadingSchema = import_zod.z.object({
   steps: import_zod.z.number().finite().min(0)
 });
 var HealthMetricsSchema = import_zod.z.object({
-  heartRate: import_zod.z.number(),
-  spo2: import_zod.z.number(),
+  heartRate: import_zod.z.object({
+    value: import_zod.z.number(),
+    measuring: import_zod.z.boolean()
+    // true while hr is 0 / not yet available from the device
+  }),
+  spo2: import_zod.z.object({
+    value: import_zod.z.number(),
+    measuring: import_zod.z.boolean()
+  }),
   temperature: import_zod.z.object({
     celsius: import_zod.z.number(),
     fahrenheit: import_zod.z.number(),
     kelvin: import_zod.z.number(),
-    bodyTemperatureStatus: import_zod.z.enum(["Low", "Slightly Low", "Normal", "Elevated", "Fever"])
+    bodyTemperatureStatus: import_zod.z.union([
+      import_zod.z.enum(["Low", "Slightly Low", "Normal", "Elevated", "Fever"]),
+      import_zod.z.literal("N/A")
+    ]),
+    measuring: import_zod.z.boolean()
   }),
   battery: import_zod.z.number(),
+  measuring: import_zod.z.boolean(),
+  // true if ANY of hr/spo2/temp is currently 0 / unavailable
   ppg: import_zod.z.object({
     steps: import_zod.z.number(),
     calories: import_zod.z.number(),
@@ -62,12 +75,15 @@ var HealthMetricsSchema = import_zod.z.object({
     })
   }),
   stress: import_zod.z.object({
-    stressScore: import_zod.z.number().min(0).max(100),
-    stressLevel: import_zod.z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
-    readinessScore: import_zod.z.number().min(0).max(100),
-    productivityScore: import_zod.z.number().min(0).max(100),
-    overallHealthScore: import_zod.z.number().min(0).max(100),
-    energyScore: import_zod.z.number().min(0).max(100)
+    stressScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
+    stressLevel: import_zod.z.union([
+      import_zod.z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
+      import_zod.z.literal("N/A")
+    ]),
+    readinessScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
+    productivityScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
+    overallHealthScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
+    energyScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")])
   }),
   activityLevel: import_zod.z.number().min(0).max(100),
   hydrationReminder: import_zod.z.object({
@@ -79,7 +95,6 @@ var HealthMetricsSchema = import_zod.z.object({
     suggestedDrinkLiters: import_zod.z.number().min(0).max(5),
     shouldNotify: import_zod.z.boolean()
   })
-  // raw: z.string(),
 });
 var DeviceIdSchema = import_zod.z.string().min(1, "deviceId must be a non-empty string");
 var DeviceObjectSchema = import_zod.z.object({
