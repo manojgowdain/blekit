@@ -7,6 +7,7 @@ import NetInfo2 from "@react-native-community/netinfo";
 // src/info.ts
 import * as Device from "expo-device";
 import * as Battery from "expo-battery";
+import * as Location from "expo-location";
 import NetInfo from "@react-native-community/netinfo";
 import DeviceInfo from "react-native-device-info";
 

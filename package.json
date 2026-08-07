@@ -1,6 +1,6 @@
 {
   "name": "blekit",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "React Native BLE SDK",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -40,6 +40,7 @@
     "expo-background-fetch": "^57.0.5",
     "expo-battery": "^57.0.1",
     "expo-device": "^57.0.1",
+    "expo-location": "^57.0.8",
     "expo-notifications": "^57.0.7",
     "expo-task-manager": "^57.0.5",
     "expo-updates": "^57.0.10",

@@ -40,6 +40,7 @@ var import_netinfo2 = __toESM(require("@react-native-community/netinfo"));
 // src/info.ts
 var Device = __toESM(require("expo-device"));
 var Battery = __toESM(require("expo-battery"));
+var Location = __toESM(require("expo-location"));
 var import_netinfo = __toESM(require("@react-native-community/netinfo"));
 var import_react_native_device_info = __toESM(require("react-native-device-info"));
 

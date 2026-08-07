@@ -41,7 +41,7 @@ __export(index_exports, {
   disconnect: () => disconnect,
   getConnectedDevice: () => getConnectedDevice,
   getCurrentStatus: () => getCurrentStatus,
-  getDeviceInfo: () => getDeviceInfo,
+  getDeviceInfo: () => getEnhancedDeviceInfo,
   getLastNotificationResponse: () => getLastNotificationResponse,
   getServices: () => getServices,
   hasActiveMonitor: () => hasActiveMonitor,
@@ -77,26 +77,85 @@ var import_netinfo2 = __toESM(require("@react-native-community/netinfo"));
 // src/info.ts
 var Device = __toESM(require("expo-device"));
 var Battery = __toESM(require("expo-battery"));
+var Location = __toESM(require("expo-location"));
 var import_netinfo = __toESM(require("@react-native-community/netinfo"));
 var import_react_native_device_info = __toESM(require("react-native-device-info"));
-async function getDeviceInfo() {
-  const battery = await Battery.getBatteryLevelAsync();
+var legacyDeviceInfo = import_react_native_device_info.default;
+async function getEnhancedDeviceInfo() {
+  const batteryLevel = await Battery.getBatteryLevelAsync();
   const batteryState = await Battery.getBatteryStateAsync();
   const net = await import_netinfo.default.fetch();
+  let latitude = null;
+  let longitude = null;
+  let accuracy = null;
+  let speed = null;
+  let googleMapsUrl = null;
+  const permission = await Location.getForegroundPermissionsAsync();
+  const hasLocationPermission = permission.status === "granted" || permission.canAskAgain && (await Location.requestForegroundPermissionsAsync()).status === "granted";
+  if (hasLocationPermission) {
+    try {
+      const position = await Location.getCurrentPositionAsync({});
+      latitude = position.coords.latitude;
+      longitude = position.coords.longitude;
+      accuracy = position.coords.accuracy;
+      speed = position.coords.speed;
+      googleMapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    } catch (error) {
+      console.log("Location read error:", error);
+    }
+  }
+  const isEmulator = await import_react_native_device_info.default.isEmulator();
+  const isRooted = await import_react_native_device_info.default.isPinOrFingerprintSet !== void 0 ? await legacyDeviceInfo.isDeviceRooted?.() ?? false : false;
+  const hasScreenLock = await import_react_native_device_info.default.isPinOrFingerprintSet();
+  const isMockLocation = hasLocationPermission ? await import_react_native_device_info.default.isLocationEnabled?.().catch(() => false) ?? false : false;
+  const freeStorage = await import_react_native_device_info.default.getFreeDiskStorage();
+  const totalStorage = await import_react_native_device_info.default.getTotalDiskCapacity();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const locale = Device.osName === "iOS" ? Intl.DateTimeFormat().resolvedOptions().locale : legacyDeviceInfo.getDeviceLocale?.() ?? "en-US";
   return {
-    brand: Device.brand,
-    manufacturer: Device.manufacturer,
-    model: Device.modelName,
-    deviceName: await import_react_native_device_info.default.getDeviceName(),
-    os: `${Device.osName} ${Device.osVersion}`,
-    battery: `${Math.round(battery * 100)}%`,
-    charging: batteryState === Battery.BatteryState.CHARGING ? "Yes" : "No",
-    appVersion: import_react_native_device_info.default.getVersion(),
-    build: import_react_native_device_info.default.getBuildNumber(),
-    uniqueId: await import_react_native_device_info.default.getUniqueId(),
-    ip: await import_react_native_device_info.default.getIpAddress(),
-    wifi: net.type,
-    online: net.isConnected
+    device: {
+      brand: Device.brand,
+      manufacturer: Device.manufacturer,
+      model: Device.modelName,
+      deviceName: await import_react_native_device_info.default.getDeviceName(),
+      os: `${Device.osName} ${Device.osVersion}`,
+      appVersion: import_react_native_device_info.default.getVersion(),
+      build: import_react_native_device_info.default.getBuildNumber(),
+      uniqueId: await import_react_native_device_info.default.getUniqueId()
+    },
+    network: {
+      type: net.type,
+      online: net.isConnected,
+      ip: await import_react_native_device_info.default.getIpAddress(),
+      vpn: net.details?.isConnectionExpensive !== void 0 ? net.type === "vpn" : false
+    },
+    location: {
+      latitude,
+      longitude,
+      accuracy,
+      speed,
+      googleMapsUrl
+    },
+    battery: {
+      level: Math.round(batteryLevel * 100),
+      charging: batteryState === Battery.BatteryState.CHARGING
+    },
+    security: {
+      rooted: isRooted,
+      emulator: isEmulator,
+      developerMode: await legacyDeviceInfo.isDeviceRooted?.() ?? false,
+      // see note below
+      mockLocation: isMockLocation,
+      screenLock: hasScreenLock
+    },
+    storage: {
+      free: freeStorage,
+      total: totalStorage
+    },
+    time: {
+      timezone,
+      locale
+    }
   };
 }
 
