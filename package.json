@@ -30,6 +30,7 @@
     "expo"
   ],
   "peerDependencies": {
+    "react": "*",
     "typescript": "^5"
   },
   "dependencies": {
@@ -67,6 +68,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./useOtaUpdate": {
+      "types": "./dist/src/useOtaUpdate.d.ts",
+      "import": "./dist/src/useOtaUpdate.mjs",
+      "require": "./dist/src/useOtaUpdate.js"
     },
     "./src/bgnp": "./src/bgnp.cjs",
     "./plugin": "./src/bgnp.cjs"
