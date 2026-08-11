@@ -39,6 +39,7 @@ __export(index_exports, {
   consoleApp: () => consoleApp,
   destroy: () => destroy,
   disconnect: () => disconnect,
+  downloadAndInstallApk: () => downloadAndInstallApk,
   getConnectedDevice: () => getConnectedDevice,
   getCurrentStatus: () => getCurrentStatus,
   getDeviceInfo: () => getEnhancedDeviceInfo,
@@ -48,12 +49,15 @@ __export(index_exports, {
   initializeLogger: () => initializeLogger,
   isBackgroundServiceRunning: () => isBackgroundServiceRunning,
   isConnected: () => isConnected,
+  isNewVersionAvailable: () => isNewVersionAvailable,
   monitorData: () => monitorData,
   monitorHealthMetrics: () => monitorHealthMetrics,
   onStateChange: () => onStateChange,
   read: () => read,
   requestBlePermission: () => requestBlePermission,
+  requestInstallPermission: () => requestInstallPermission,
   requestNotificationPermission: () => requestNotificationPermission,
+  runOtaUpdate: () => runOtaUpdate,
   scanDevices: () => scanDevices,
   sendCommand: () => sendCommand,
   sendNormalNotification: () => sendNormalNotification,
@@ -1534,6 +1538,75 @@ var unpair = async () => {
   await BLEService_default.disconnect();
   return true;
 };
+
+// src/otaUpdate.ts
+var import_react_native3 = require("react-native");
+var FileSystem = __toESM(require("expo-file-system/legacy"));
+var IntentLauncher = __toESM(require("expo-intent-launcher"));
+var import_expo_constants = __toESM(require("expo-constants"));
+var import_expo_application = __toESM(require("expo-application"));
+function isNewVersionAvailable(current, latest) {
+  const c = String(current).split(".").map(Number);
+  const l = String(latest).split(".").map(Number);
+  const len = Math.max(c.length, l.length);
+  for (let i = 0; i < len; i++) {
+    const a = c[i] || 0;
+    const b = l[i] || 0;
+    if (b > a) return true;
+    if (b < a) return false;
+  }
+  return false;
+}
+async function requestInstallPermission() {
+  if (import_react_native3.Platform.OS !== "android") return true;
+  try {
+    const packageName = import_expo_application.default.applicationId || import_expo_constants.default.expoConfig?.android?.package;
+    await IntentLauncher.startActivityAsync(
+      "android.settings.MANAGE_UNKNOWN_APP_SOURCES",
+      { data: `package:${packageName}` }
+    );
+    return true;
+  } catch (err) {
+    console.warn("requestInstallPermission failed:", err);
+    return false;
+  }
+}
+async function downloadAndInstallApk(url, onProgress) {
+  const fileUri = FileSystem.documentDirectory + "app-update.apk";
+  const downloadResumable = FileSystem.createDownloadResumable(
+    url,
+    fileUri,
+    {},
+    (downloadProgress) => {
+      if (downloadProgress.totalBytesExpectedToWrite > 0) {
+        const p = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
+        onProgress?.(p);
+      }
+    }
+  );
+  const result = await downloadResumable.downloadAsync();
+  if (!result?.uri) throw new Error("Download failed");
+  const contentUri = await FileSystem.getContentUriAsync(result.uri);
+  await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+    data: contentUri,
+    flags: 1,
+    type: "application/vnd.android.package-archive"
+  });
+  return result.uri;
+}
+async function runOtaUpdate({
+  url,
+  currentVersion,
+  updatedVersion,
+  onProgress
+}) {
+  if (!isNewVersionAvailable(currentVersion, updatedVersion)) {
+    return { updated: false, reason: "up-to-date" };
+  }
+  await requestInstallPermission();
+  const uri = await downloadAndInstallApk(url, onProgress);
+  return { updated: true, uri };
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   autoConnect,
@@ -1546,6 +1619,7 @@ var unpair = async () => {
   consoleApp,
   destroy,
   disconnect,
+  downloadAndInstallApk,
   getConnectedDevice,
   getCurrentStatus,
   getDeviceInfo,
@@ -1555,12 +1629,15 @@ var unpair = async () => {
   initializeLogger,
   isBackgroundServiceRunning,
   isConnected,
+  isNewVersionAvailable,
   monitorData,
   monitorHealthMetrics,
   onStateChange,
   read,
   requestBlePermission,
+  requestInstallPermission,
   requestNotificationPermission,
+  runOtaUpdate,
   scanDevices,
   sendCommand,
   sendNormalNotification,
