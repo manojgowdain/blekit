@@ -1564,7 +1564,7 @@ function useOtaUpdate({ url, currentVersion, updatedVersion }) {
   return { status, progress, startUpdate };
 }
 export {
-  useOtaUpdate as default
+  useOtaUpdate
 };
 /*! Bundled license information:
 

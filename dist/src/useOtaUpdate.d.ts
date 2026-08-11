@@ -11,4 +11,4 @@ declare function useOtaUpdate({ url, currentVersion, updatedVersion }: {
     startUpdate: () => Promise<void>;
 };
 
-export { useOtaUpdate as default };
+export { useOtaUpdate };

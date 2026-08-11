@@ -5,7 +5,7 @@ import { isNewVersionAvailable, runOtaUpdate } from "./otaUpdate";
 /**
  * status: 'idle' | 'available' | 'upToDate' | 'downloading' | 'done' | 'error'
  */
-export default function useOtaUpdate({ url, currentVersion, updatedVersion }) {
+export  function useOtaUpdate({ url, currentVersion, updatedVersion }) {
   const isMountedRef = useRef(true);
   const [status, setStatus] = useState(
     isNewVersionAvailable(currentVersion, updatedVersion) ? "available" : "upToDate"

@@ -1457,7 +1457,7 @@ var require_react = __commonJS({
 // src/useOtaUpdate.ts
 var useOtaUpdate_exports = {};
 __export(useOtaUpdate_exports, {
-  default: () => useOtaUpdate
+  useOtaUpdate: () => useOtaUpdate
 });
 module.exports = __toCommonJS(useOtaUpdate_exports);
 var import_react = __toESM(require_react());
@@ -1573,6 +1573,10 @@ function useOtaUpdate({ url, currentVersion, updatedVersion }) {
   }, [url, currentVersion, updatedVersion, status]);
   return { status, progress, startUpdate };
 }
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  useOtaUpdate
+});
 /*! Bundled license information:
 
 react/cjs/react.production.js:
