@@ -162,6 +162,67 @@ function calculateStress({
   };
 }
 
+function estimateVO2Max({
+  hr,
+  hrv,
+  age,
+  sex,
+  restingHr = 60,
+  maxHr = 220
+}) {
+  if (
+    !Number.isFinite(hr) ||
+    !Number.isFinite(hrv) ||
+    !Number.isFinite(age) ||
+    !Number.isFinite(restingHr) ||
+    !Number.isFinite(maxHr)
+  ) {
+    throw new Error("Invalid VO2Max input");
+  }
+
+  // Estimate VO2Max using heart rate ratio method (heart rate reserve)
+  // VO2Max ≈ 15.3 × (HRmax / HRrest) - this is a simplified version
+  // More accurate: use HRV and submaximal HR
+  const hrReserve = maxHr - restingHr;
+  const hrRatio = (hr - restingHr) / hrReserve;
+
+  // Base VO2Max estimation from age and sex
+  let baseVO2Max = sex === "male"
+    ? 60 - age * 0.5  // Male: ~60 at age 0, declines ~0.5/year
+    : 48 - age * 0.4; // Female: ~48 at age 0, declines ~0.4/year
+
+  // Adjust based on HRV (higher HRV = better fitness)
+  const hrvFactor = Math.min(1.3, Math.max(0.7, hrv / 50));
+
+  // Adjust based on submaximal HR (lower HR at same effort = better fitness)
+  const hrFactor = Math.max(0.5, 1.5 - hrRatio);
+
+  let vo2Max = baseVO2Max * hrvFactor * hrFactor;
+
+  // Clamp to reasonable range
+  vo2Max = Math.round(Math.max(15, Math.min(85, vo2Max)));
+
+  let level;
+  if (sex === "male") {
+    if (vo2Max < 35) level = "Poor";
+    else if (vo2Max < 42) level = "Below Average";
+    else if (vo2Max < 50) level = "Average";
+    else if (vo2Max < 60) level = "Above Average";
+    else level = "Excellent";
+  } else {
+    if (vo2Max < 30) level = "Poor";
+    else if (vo2Max < 37) level = "Below Average";
+    else if (vo2Max < 44) level = "Average";
+    else if (vo2Max < 52) level = "Above Average";
+    else level = "Excellent";
+  }
+
+  return {
+    value: vo2Max,
+    level
+  };
+}
+
 function calculateTemperatureStatus(tempC) {
   if (tempC < 35) return "Low";
   if (tempC <= 36) return "Slightly Low";
@@ -691,6 +752,23 @@ class BLEService {
             ? { ...bpEstimate, measuring: false }
             : { systolic: "N/A", diastolic: "N/A", map: "N/A", confidence: "N/A", measuring: true };
 
+          // Estimate VO2Max when all sensors are ready
+          const vo2MaxEstimate = allReady
+            ? estimateVO2Max({
+                hr: smoothedHr,
+                hrv: smoothedHrv,
+                age,
+                sex,
+              })
+            : null;
+          const vo2Max: {
+            value: number | "N/A";
+            level: "Poor" | "Below Average" | "Average" | "Above Average" | "Excellent" | "N/A";
+            measuring: boolean;
+          } = vo2MaxEstimate
+            ? { ...vo2MaxEstimate, measuring: false }
+            : { value: "N/A", level: "N/A", measuring: true };
+
           const elapsedHours = this.monitorStartedAt
             ? (Date.now() - this.monitorStartedAt) / 3600000
             : 0;
@@ -753,6 +831,15 @@ class BLEService {
               map: bloodPressure.map,
               confidence: bloodPressure.confidence,
               measuring: bloodPressure.measuring,
+            },
+            hrv: {
+              value: allReady ? smoothedHrv : "N/A",
+              measuring: hrvMeasuring,
+            },
+            vo2Max: {
+              value: vo2Max.value,
+              level: vo2Max.level,
+              measuring: vo2Max.measuring,
             },
             activityLevel: healthScores.activityLevel,
             hydrationReminder: healthScores.hydrationReminder,

@@ -93,6 +93,18 @@ var HealthMetricsSchema = import_zod.z.object({
     confidence: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
     measuring: import_zod.z.boolean()
   }),
+  hrv: import_zod.z.object({
+    value: import_zod.z.union([import_zod.z.number().min(0).max(200), import_zod.z.literal("N/A")]),
+    measuring: import_zod.z.boolean()
+  }),
+  vo2Max: import_zod.z.object({
+    value: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
+    level: import_zod.z.union([
+      import_zod.z.enum(["Poor", "Below Average", "Average", "Above Average", "Excellent"]),
+      import_zod.z.literal("N/A")
+    ]),
+    measuring: import_zod.z.boolean()
+  }),
   activityLevel: import_zod.z.number().min(0).max(100),
   hydrationReminder: import_zod.z.object({
     targetLiters: import_zod.z.number().min(0).max(5),

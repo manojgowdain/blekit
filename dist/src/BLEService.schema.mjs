@@ -64,6 +64,18 @@ var HealthMetricsSchema = z.object({
     confidence: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     measuring: z.boolean()
   }),
+  hrv: z.object({
+    value: z.union([z.number().min(0).max(200), z.literal("N/A")]),
+    measuring: z.boolean()
+  }),
+  vo2Max: z.object({
+    value: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    level: z.union([
+      z.enum(["Poor", "Below Average", "Average", "Above Average", "Excellent"]),
+      z.literal("N/A")
+    ]),
+    measuring: z.boolean()
+  }),
   activityLevel: z.number().min(0).max(100),
   hydrationReminder: z.object({
     targetLiters: z.number().min(0).max(5),

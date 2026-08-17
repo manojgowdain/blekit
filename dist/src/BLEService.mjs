@@ -109,6 +109,18 @@ var HealthMetricsSchema = z.object({
     confidence: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     measuring: z.boolean()
   }),
+  hrv: z.object({
+    value: z.union([z.number().min(0).max(200), z.literal("N/A")]),
+    measuring: z.boolean()
+  }),
+  vo2Max: z.object({
+    value: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    level: z.union([
+      z.enum(["Poor", "Below Average", "Average", "Above Average", "Excellent"]),
+      z.literal("N/A")
+    ]),
+    measuring: z.boolean()
+  }),
   activityLevel: z.number().min(0).max(100),
   hydrationReminder: z.object({
     targetLiters: z.number().min(0).max(5),
@@ -218,6 +230,43 @@ function calculateStress({
   }
   return {
     score: stress,
+    level
+  };
+}
+function estimateVO2Max({
+  hr,
+  hrv,
+  age,
+  sex,
+  restingHr = 60,
+  maxHr = 220
+}) {
+  if (!Number.isFinite(hr) || !Number.isFinite(hrv) || !Number.isFinite(age) || !Number.isFinite(restingHr) || !Number.isFinite(maxHr)) {
+    throw new Error("Invalid VO2Max input");
+  }
+  const hrReserve = maxHr - restingHr;
+  const hrRatio = (hr - restingHr) / hrReserve;
+  let baseVO2Max = sex === "male" ? 60 - age * 0.5 : 48 - age * 0.4;
+  const hrvFactor = Math.min(1.3, Math.max(0.7, hrv / 50));
+  const hrFactor = Math.max(0.5, 1.5 - hrRatio);
+  let vo2Max = baseVO2Max * hrvFactor * hrFactor;
+  vo2Max = Math.round(Math.max(15, Math.min(85, vo2Max)));
+  let level;
+  if (sex === "male") {
+    if (vo2Max < 35) level = "Poor";
+    else if (vo2Max < 42) level = "Below Average";
+    else if (vo2Max < 50) level = "Average";
+    else if (vo2Max < 60) level = "Above Average";
+    else level = "Excellent";
+  } else {
+    if (vo2Max < 30) level = "Poor";
+    else if (vo2Max < 37) level = "Below Average";
+    else if (vo2Max < 44) level = "Average";
+    else if (vo2Max < 52) level = "Above Average";
+    else level = "Excellent";
+  }
+  return {
+    value: vo2Max,
     level
   };
 }
@@ -634,6 +683,13 @@ var BLEService = class {
             temperature: smoothedTempC
           }) : null;
           const bloodPressure = bpEstimate ? { ...bpEstimate, measuring: false } : { systolic: "N/A", diastolic: "N/A", map: "N/A", confidence: "N/A", measuring: true };
+          const vo2MaxEstimate = allReady ? estimateVO2Max({
+            hr: smoothedHr,
+            hrv: smoothedHrv,
+            age,
+            sex
+          }) : null;
+          const vo2Max = vo2MaxEstimate ? { ...vo2MaxEstimate, measuring: false } : { value: "N/A", level: "N/A", measuring: true };
           const elapsedHours = this.monitorStartedAt ? (Date.now() - this.monitorStartedAt) / 36e5 : 0;
           const healthScores = calculateHealthScores({
             hr: smoothedHr,
@@ -686,6 +742,15 @@ var BLEService = class {
               map: bloodPressure.map,
               confidence: bloodPressure.confidence,
               measuring: bloodPressure.measuring
+            },
+            hrv: {
+              value: allReady ? smoothedHrv : "N/A",
+              measuring: hrvMeasuring
+            },
+            vo2Max: {
+              value: vo2Max.value,
+              level: vo2Max.level,
+              measuring: vo2Max.measuring
             },
             activityLevel: healthScores.activityLevel,
             hydrationReminder: healthScores.hydrationReminder

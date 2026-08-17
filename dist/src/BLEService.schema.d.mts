@@ -65,6 +65,21 @@ declare const HealthMetricsSchema: z.ZodObject<{
         confidence: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
         measuring: z.ZodBoolean;
     }, z.core.$strip>;
+    hrv: z.ZodObject<{
+        value: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        measuring: z.ZodBoolean;
+    }, z.core.$strip>;
+    vo2Max: z.ZodObject<{
+        value: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        level: z.ZodUnion<readonly [z.ZodEnum<{
+            Poor: "Poor";
+            "Below Average": "Below Average";
+            Average: "Average";
+            "Above Average": "Above Average";
+            Excellent: "Excellent";
+        }>, z.ZodLiteral<"N/A">]>;
+        measuring: z.ZodBoolean;
+    }, z.core.$strip>;
     activityLevel: z.ZodNumber;
     hydrationReminder: z.ZodObject<{
         targetLiters: z.ZodNumber;
