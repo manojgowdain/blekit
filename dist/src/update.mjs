@@ -250,15 +250,16 @@ var KalmanFilter = class {
 
 // src/BLEService.schema.ts
 import { z } from "zod";
-var RawPayloadSchema = z.string().trim().refine((val) => val.split(",").length === 5, {
-  message: "Payload must contain exactly 5 comma-separated fields"
+var RawPayloadSchema = z.string().trim().refine((val) => val.split(",").length === 6, {
+  message: "Payload must contain exactly 6 comma-separated fields"
 });
 var HealthReadingSchema = z.object({
   hr: z.number().finite().min(0).max(300),
   spo2: z.number().finite().min(0).max(100),
   tempC: z.number().finite().min(-20).max(60),
   battery: z.number().finite().min(0).max(100),
-  steps: z.number().finite().min(0)
+  steps: z.number().finite().min(0),
+  hrv: z.number().finite().min(0).max(200)
 });
 var HealthMetricsSchema = z.object({
   heartRate: z.object({
@@ -298,13 +299,20 @@ var HealthMetricsSchema = z.object({
   stress: z.object({
     stressScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     stressLevel: z.union([
-      z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
+      z.enum(["Relaxed", "Normal", "Elevated", "High"]),
       z.literal("N/A")
     ]),
     readinessScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     productivityScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     overallHealthScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     energyScore: z.union([z.number().min(0).max(100), z.literal("N/A")])
+  }),
+  bloodPressure: z.object({
+    systolic: z.union([z.number().min(80).max(200), z.literal("N/A")]),
+    diastolic: z.union([z.number().min(40).max(130), z.literal("N/A")]),
+    map: z.union([z.number().min(50).max(150), z.literal("N/A")]),
+    confidence: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    measuring: z.boolean()
   }),
   activityLevel: z.number().min(0).max(100),
   hydrationReminder: z.object({
@@ -336,33 +344,86 @@ function calculateGoalPercent(value, goal) {
   if (!Number.isFinite(goal) || goal <= 0) return 0;
   return clampScore(Math.min(value / goal * 100, 100));
 }
-function calculateStress(hr, spo2, temp) {
-  let score = 20;
-  if (hr > 80) {
-    score += (hr - 80) * 1.5;
+function estimateBP({
+  hr,
+  hrv,
+  age,
+  height,
+  weight,
+  sex,
+  spo2,
+  temperature
+}) {
+  if (!Number.isFinite(hr) || !Number.isFinite(hrv) || !Number.isFinite(age) || !Number.isFinite(height) || !Number.isFinite(weight)) {
+    throw new Error("Invalid BP input");
   }
-  if (spo2 < 95) {
-    score += (95 - spo2) * 5;
-  }
-  if (temp > 37.2) {
-    score += (temp - 37.2) * 20;
-  }
-  score = Math.max(0, Math.min(100, Math.round(score)));
-  let stressLevel;
-  if (score <= 20) {
-    stressLevel = "Relaxed";
-  } else if (score <= 40) {
-    stressLevel = "Normal";
-  } else if (score <= 60) {
-    stressLevel = "Elevated";
-  } else if (score <= 80) {
-    stressLevel = "High";
+  const heightM = height / 100;
+  const bmi = weight / (heightM * heightM);
+  const sexFactor = sex === "male" ? 2 : 0;
+  let systolic = 95 + age * 0.35 + bmi * 0.45 + hr * 0.12 + sexFactor - hrv * 0.05;
+  let diastolic = 58 + age * 0.2 + bmi * 0.25 + hr * 0.06 + sexFactor * 0.4 - hrv * 0.025;
+  systolic = Math.round(Math.max(80, Math.min(200, systolic)));
+  diastolic = Math.round(Math.max(40, Math.min(130, diastolic)));
+  const map = Math.round(
+    diastolic + (systolic - diastolic) / 3
+  );
+  let confidence = 50;
+  if (spo2 >= 95) confidence += 10;
+  if (hr >= 50 && hr <= 100) confidence += 10;
+  if (hrv > 20) confidence += 10;
+  if (temperature >= 36 && temperature <= 38) confidence += 5;
+  confidence = Math.min(100, confidence);
+  return {
+    systolic,
+    diastolic,
+    map,
+    confidence
+  };
+}
+function calculateStress({
+  hr,
+  hrv,
+  spo2,
+  temperature,
+  activity = 0
+}) {
+  const hrStress = Math.min(
+    100,
+    Math.max(0, (hr - 60) / 60 * 100)
+  );
+  const hrvStress = Math.min(
+    100,
+    Math.max(0, (60 - hrv) / 60 * 100)
+  );
+  const spo2Stress = Math.min(
+    100,
+    Math.max(0, (95 - spo2) * 20)
+  );
+  const temperatureStress = Math.min(
+    100,
+    Math.abs(temperature - 36.7) * 20
+  );
+  const activityFactor = Math.min(
+    100,
+    Math.max(0, activity)
+  );
+  let stress = hrStress * 0.3 + hrvStress * 0.4 + spo2Stress * 0.05 + temperatureStress * 0.05 + activityFactor * 0.2;
+  stress = Math.round(
+    Math.max(0, Math.min(100, stress))
+  );
+  let level;
+  if (stress < 25) {
+    level = "Relaxed";
+  } else if (stress < 50) {
+    level = "Normal";
+  } else if (stress < 75) {
+    level = "Elevated";
   } else {
-    stressLevel = "Very High";
+    level = "High";
   }
   return {
-    stressScore: score,
-    stressLevel
+    score: stress,
+    level
   };
 }
 function calculateTemperatureStatus(tempC) {
@@ -472,6 +533,7 @@ var BLEService = class {
   hrFilter;
   spo2Filter;
   tempFilter;
+  hrvFilter;
   constructor() {
     this.manager = new BleManager({
       restoreStateIdentifier: "BleBackgroundRestoreId"
@@ -487,6 +549,7 @@ var BLEService = class {
     this.hrFilter = new KalmanFilter({ R: 4, Q: 0.05 });
     this.spo2Filter = new KalmanFilter({ R: 2, Q: 0.02 });
     this.tempFilter = new KalmanFilter({ R: 0.5, Q: 0.01 });
+    this.hrvFilter = new KalmanFilter({ R: 10, Q: 0.1 });
   }
   // ==========================
   // Request Permissions
@@ -658,7 +721,12 @@ var BLEService = class {
       goalDistance = goalSteps * 0.75 / 1e3,
       goalWalkingSpeedKmh = DEFAULT_GOAL_WALKING_SPEED_KMH,
       waterGoalLiters = DEFAULT_WATER_GOAL_LITERS,
-      waterIntakeLiters = 0
+      waterIntakeLiters = 0,
+      // User profile for BP estimation (with defaults)
+      age = 30,
+      height = 170,
+      weight = 70,
+      sex = "male"
     } = options;
     if (!this.device) return;
     this.clearMonitorRestart();
@@ -701,13 +769,14 @@ var BLEService = class {
             return;
           }
           const parts = rawResult.data.split(",");
-          const [hr, spo2, tempC, battery, steps] = parts.map(Number);
+          const [hr, spo2, tempC, battery, steps, hrv] = parts.map(Number);
           const readingResult = HealthReadingSchema.safeParse({
             hr,
             spo2,
             tempC,
             battery,
-            steps
+            steps,
+            hrv
           });
           if (!readingResult.success) {
             callback(
@@ -723,29 +792,53 @@ var BLEService = class {
             spo2: validSpo2,
             tempC: validTempC,
             battery: validBattery,
-            steps: validSteps
+            steps: validSteps,
+            hrv: validHrv
           } = readingResult.data;
           const hrHasReading = validHr > 0;
           const spo2HasReading = validSpo2 > 0;
           const tempHasReading = validTempC > 0;
+          const hrvHasReading = validHrv > 0;
           if (hrHasReading) this.hrFilter.filter(validHr);
           if (spo2HasReading) this.spo2Filter.filter(validSpo2);
           if (tempHasReading) this.tempFilter.filter(validTempC);
+          if (hrvHasReading) this.hrvFilter.filter(validHrv);
           const hrReady = this.hrFilter.value !== null;
           const spo2Ready = this.spo2Filter.value !== null;
           const tempReady = this.tempFilter.value !== null;
-          const allReady = hrReady && spo2Ready && tempReady;
+          const hrvReady = this.hrvFilter.value !== null;
+          const allReady = hrReady && spo2Ready && tempReady && hrvReady;
           const hrMeasuring = !hrReady;
           const spo2Measuring = !spo2Ready;
           const tempMeasuring = !tempReady;
+          const hrvMeasuring = !hrvReady;
           const smoothedHr = hrReady ? Math.round(this.hrFilter.value) : 0;
           const smoothedSpo2 = spo2Ready ? Math.round(this.spo2Filter.value) : 0;
           const smoothedTempC = tempReady ? Number(this.tempFilter.value.toFixed(2)) : 0;
+          const smoothedHrv = hrvReady ? Math.round(this.hrvFilter.value) : 0;
           const tempF = Number((smoothedTempC * 9 / 5 + 32).toFixed(2));
           const tempK = Number((smoothedTempC + 273.15).toFixed(2));
           const calories = Number((validSteps * 0.04).toFixed(2));
           const distance = Number((validSteps * 0.75 / 1e3).toFixed(2));
-          const rawStress = allReady ? calculateStress(smoothedHr, smoothedSpo2, smoothedTempC) : { stressScore: 0, stressLevel: "Normal" };
+          const rawStress = allReady ? calculateStress({
+            hr: smoothedHr,
+            hrv: smoothedHrv,
+            spo2: smoothedSpo2,
+            temperature: smoothedTempC,
+            activity: 0
+            // Default activity to 0
+          }) : { score: 0, level: "Normal" };
+          const bpEstimate = allReady ? estimateBP({
+            hr: smoothedHr,
+            hrv: smoothedHrv,
+            age,
+            height,
+            weight,
+            sex,
+            spo2: smoothedSpo2,
+            temperature: smoothedTempC
+          }) : null;
+          const bloodPressure = bpEstimate ? { ...bpEstimate, measuring: false } : { systolic: "N/A", diastolic: "N/A", map: "N/A", confidence: "N/A", measuring: true };
           const elapsedHours = this.monitorStartedAt ? (Date.now() - this.monitorStartedAt) / 36e5 : 0;
           const healthScores = calculateHealthScores({
             hr: smoothedHr,
@@ -754,7 +847,7 @@ var BLEService = class {
             steps: validSteps,
             calories,
             distance,
-            stressScore: rawStress.stressScore,
+            stressScore: rawStress.score,
             elapsedHours,
             goalSteps,
             goalCalories,
@@ -775,7 +868,7 @@ var BLEService = class {
               measuring: tempMeasuring
             },
             battery: validBattery,
-            measuring: hrMeasuring || spo2Measuring || tempMeasuring,
+            measuring: hrMeasuring || spo2Measuring || tempMeasuring || hrvMeasuring,
             ppg: {
               steps: validSteps,
               calories,
@@ -784,13 +877,20 @@ var BLEService = class {
               goal: healthScores.goal
             },
             stress: {
-              stressScore: allReady ? rawStress.stressScore : "N/A",
-              stressLevel: allReady ? rawStress.stressLevel : "N/A",
+              stressScore: allReady ? rawStress.score : "N/A",
+              stressLevel: allReady ? rawStress.level : "N/A",
               // These blend hr+spo2+temp+stress, so they wait on allReady too.
               readinessScore: allReady ? healthScores.readinessScore : "N/A",
               productivityScore: allReady ? healthScores.productivityScore : "N/A",
               overallHealthScore: allReady ? healthScores.overallHealthScore : "N/A",
               energyScore: allReady ? healthScores.energyScore : "N/A"
+            },
+            bloodPressure: {
+              systolic: bloodPressure.systolic,
+              diastolic: bloodPressure.diastolic,
+              map: bloodPressure.map,
+              confidence: bloodPressure.confidence,
+              measuring: bloodPressure.measuring
             },
             activityLevel: healthScores.activityLevel,
             hydrationReminder: healthScores.hydrationReminder

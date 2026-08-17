@@ -29,15 +29,16 @@ __export(BLEService_schema_exports, {
 });
 module.exports = __toCommonJS(BLEService_schema_exports);
 var import_zod = require("zod");
-var RawPayloadSchema = import_zod.z.string().trim().refine((val) => val.split(",").length === 5, {
-  message: "Payload must contain exactly 5 comma-separated fields"
+var RawPayloadSchema = import_zod.z.string().trim().refine((val) => val.split(",").length === 6, {
+  message: "Payload must contain exactly 6 comma-separated fields"
 });
 var HealthReadingSchema = import_zod.z.object({
   hr: import_zod.z.number().finite().min(0).max(300),
   spo2: import_zod.z.number().finite().min(0).max(100),
   tempC: import_zod.z.number().finite().min(-20).max(60),
   battery: import_zod.z.number().finite().min(0).max(100),
-  steps: import_zod.z.number().finite().min(0)
+  steps: import_zod.z.number().finite().min(0),
+  hrv: import_zod.z.number().finite().min(0).max(200)
 });
 var HealthMetricsSchema = import_zod.z.object({
   heartRate: import_zod.z.object({
@@ -77,13 +78,20 @@ var HealthMetricsSchema = import_zod.z.object({
   stress: import_zod.z.object({
     stressScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
     stressLevel: import_zod.z.union([
-      import_zod.z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
+      import_zod.z.enum(["Relaxed", "Normal", "Elevated", "High"]),
       import_zod.z.literal("N/A")
     ]),
     readinessScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
     productivityScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
     overallHealthScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
     energyScore: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")])
+  }),
+  bloodPressure: import_zod.z.object({
+    systolic: import_zod.z.union([import_zod.z.number().min(80).max(200), import_zod.z.literal("N/A")]),
+    diastolic: import_zod.z.union([import_zod.z.number().min(40).max(130), import_zod.z.literal("N/A")]),
+    map: import_zod.z.union([import_zod.z.number().min(50).max(150), import_zod.z.literal("N/A")]),
+    confidence: import_zod.z.union([import_zod.z.number().min(0).max(100), import_zod.z.literal("N/A")]),
+    measuring: import_zod.z.boolean()
   }),
   activityLevel: import_zod.z.number().min(0).max(100),
   hydrationReminder: import_zod.z.object({

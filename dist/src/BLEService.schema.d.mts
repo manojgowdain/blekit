@@ -7,6 +7,7 @@ declare const HealthReadingSchema: z.ZodObject<{
     tempC: z.ZodNumber;
     battery: z.ZodNumber;
     steps: z.ZodNumber;
+    hrv: z.ZodNumber;
 }, z.core.$strip>;
 declare const HealthMetricsSchema: z.ZodObject<{
     heartRate: z.ZodObject<{
@@ -51,12 +52,18 @@ declare const HealthMetricsSchema: z.ZodObject<{
             Elevated: "Elevated";
             Relaxed: "Relaxed";
             High: "High";
-            "Very High": "Very High";
         }>, z.ZodLiteral<"N/A">]>;
         readinessScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
         productivityScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
         overallHealthScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
         energyScore: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+    }, z.core.$strip>;
+    bloodPressure: z.ZodObject<{
+        systolic: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        diastolic: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        map: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        confidence: z.ZodUnion<readonly [z.ZodNumber, z.ZodLiteral<"N/A">]>;
+        measuring: z.ZodBoolean;
     }, z.core.$strip>;
     activityLevel: z.ZodNumber;
     hydrationReminder: z.ZodObject<{

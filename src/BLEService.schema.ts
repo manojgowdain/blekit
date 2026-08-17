@@ -4,15 +4,15 @@ import { z } from "zod";
 // Zod Schemas for BLEService
 // ==========================
 
-// Raw BLE payload: "HR,SPO2,TEMP_C,BATTERY,STEPS"
-// Validated as a comma-separated string of exactly 5 numeric fields,
+// Raw BLE payload: "HR,SPO2,TEMP_C,BATTERY,STEPS,HRV"
+// Validated as a comma-separated string of exactly 6 numeric fields,
 // each within a physiologically/device-sane range, before any
 // downstream math (unit conversion, calories, distance) runs on it.
 export const RawPayloadSchema = z
   .string()
   .trim()
-  .refine((val) => val.split(",").length === 5, {
-    message: "Payload must contain exactly 5 comma-separated fields",
+  .refine((val) => val.split(",").length === 6, {
+    message: "Payload must contain exactly 6 comma-separated fields",
   });
 
 export const HealthReadingSchema = z.object({
@@ -21,6 +21,7 @@ export const HealthReadingSchema = z.object({
   tempC: z.number().finite().min(-20).max(60),
   battery: z.number().finite().min(0).max(100),
   steps: z.number().finite().min(0),
+  hrv: z.number().finite().min(0).max(200),
 });
 
 export const HealthMetricsSchema = z.object({
@@ -59,13 +60,20 @@ export const HealthMetricsSchema = z.object({
   stress: z.object({
     stressScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     stressLevel: z.union([
-      z.enum(["Relaxed", "Normal", "Elevated", "High", "Very High"]),
+      z.enum(["Relaxed", "Normal", "Elevated", "High"]),
       z.literal("N/A"),
     ]),
     readinessScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     productivityScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     overallHealthScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
     energyScore: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+  }),
+  bloodPressure: z.object({
+    systolic: z.union([z.number().min(80).max(200), z.literal("N/A")]),
+    diastolic: z.union([z.number().min(40).max(130), z.literal("N/A")]),
+    map: z.union([z.number().min(50).max(150), z.literal("N/A")]),
+    confidence: z.union([z.number().min(0).max(100), z.literal("N/A")]),
+    measuring: z.boolean(),
   }),
   activityLevel: z.number().min(0).max(100),
   hydrationReminder: z.object({

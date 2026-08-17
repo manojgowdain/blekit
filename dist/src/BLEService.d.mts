@@ -12,6 +12,7 @@ declare class BLEService {
     hrFilter: KalmanFilter;
     spo2Filter: KalmanFilter;
     tempFilter: KalmanFilter;
+    hrvFilter: KalmanFilter;
     constructor();
     _resetFilters(): void;
     requestPermissions(): Promise<boolean>;
