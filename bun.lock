@@ -33,6 +33,7 @@
         "typescript": "^6.0.3",
       },
       "peerDependencies": {
+        "react": "*",
         "typescript": "^5",
       },
     },
