@@ -101,38 +101,31 @@ function calculateStress({
   temperature,
   activity = 0
 }) {
-  // Normalize HR
-  // Resting HR around 60–80 is treated as lower stress.
   const hrStress = Math.min(
     100,
     Math.max(0, ((hr - 60) / 60) * 100)
   );
 
-  // Lower HRV generally corresponds to higher stress.
   const hrvStress = Math.min(
     100,
     Math.max(0, ((60 - hrv) / 60) * 100)
   );
 
-  // SpO2 should have only a small influence on stress.
   const spo2Stress = Math.min(
     100,
     Math.max(0, (95 - spo2) * 20)
   );
 
-  // Temperature deviation from approximately 36.5–37°C.
   const temperatureStress = Math.min(
     100,
     Math.abs(temperature - 36.7) * 20
   );
 
-  // Activity should be used to avoid interpreting exercise HR as stress.
   const activityFactor = Math.min(
     100,
     Math.max(0, activity)
   );
 
-  // Weighted stress score
   let stress =
     hrStress * 0.30 +
     hrvStress * 0.40 +
@@ -180,26 +173,19 @@ function estimateVO2Max({
     throw new Error("Invalid VO2Max input");
   }
 
-  // Estimate VO2Max using heart rate ratio method (heart rate reserve)
-  // VO2Max ≈ 15.3 × (HRmax / HRrest) - this is a simplified version
-  // More accurate: use HRV and submaximal HR
   const hrReserve = maxHr - restingHr;
   const hrRatio = (hr - restingHr) / hrReserve;
 
-  // Base VO2Max estimation from age and sex
   let baseVO2Max = sex === "male"
-    ? 60 - age * 0.5  // Male: ~60 at age 0, declines ~0.5/year
-    : 48 - age * 0.4; // Female: ~48 at age 0, declines ~0.4/year
+    ? 60 - age * 0.5
+    : 48 - age * 0.4;
 
-  // Adjust based on HRV (higher HRV = better fitness)
   const hrvFactor = Math.min(1.3, Math.max(0.7, hrv / 50));
 
-  // Adjust based on submaximal HR (lower HR at same effort = better fitness)
   const hrFactor = Math.max(0.5, 1.5 - hrRatio);
 
   let vo2Max = baseVO2Max * hrvFactor * hrFactor;
 
-  // Clamp to reasonable range
   vo2Max = Math.round(Math.max(15, Math.min(85, vo2Max)));
 
   let level;
@@ -354,11 +340,6 @@ class BLEService {
     this.monitorStartedAt = null;
     this.connectionPromise = null;
 
-    // Kalman filters smooth the noisy sensor channels (HR, SpO2,
-    // temperature) so a single garbage/dropped-bit sample from the
-    // wearable doesn't spike straight through to the UI. Battery and
-    // steps are monotonic/discrete counters, not noisy analog
-    // readings, so they're passed through unfiltered.
     this._resetFilters();
   }
 
@@ -397,8 +378,6 @@ class BLEService {
 
   // ==========================
   // Bluetooth State Listener
-  // Exposes the shared manager's state stream so the app never
-  // has to instantiate a second BleManager.
   // ==========================
   onStateChange(callback, emitCurrentState = true) {
     return this.manager.onStateChange(callback, emitCurrentState);
@@ -437,8 +416,6 @@ class BLEService {
 
   // ==========================
   // Connect
-  // Expects the full device object returned from scanDevices(),
-  // since it calls device.connect() directly.
   // ==========================
   async connect(device) {
     const hasPermission = await this.requestPermissions();
@@ -460,8 +437,6 @@ class BLEService {
     await this.device.discoverAllServicesAndCharacteristics();
     await this.rememberDeviceId(this.device.id);
 
-    // Fresh device, fresh sensor stream — don't let filters carry
-    // stale estimates over from a previous connection.
     this._resetFilters();
     await this.syncDeviceTime();
     return this.device;
@@ -469,8 +444,16 @@ class BLEService {
 
   // ==========================
   // Auto Connect
-  // Takes a raw deviceId (e.g. from storage) instead of a device
-  // object, since there's no live scan result to call .connect() on.
+  // NOTE: `currentDeviceIsConnected` reuses the existing device/GATT
+  // handle without a full disconnect+reconnect. If the peripheral
+  // reset or briefly dropped at the radio level while Android's BLE
+  // stack kept the link "connected", the cached service table can go
+  // stale (discoverAllServicesAndCharacteristics() succeeds but later
+  // characteristic ops fail with "service not found", errorCode 302).
+  // That case is NOT recoverable by calling autoConnect again — it
+  // needs forceReconnect() to actually tear the link down. See the
+  // monitorHealthMetrics error handler below, which routes
+  // service-not-found errors there instead of a soft monitor restart.
   // ==========================
   async autoConnect(deviceId) {
     const hasPermission = await this.requestPermissions();
@@ -495,10 +478,6 @@ class BLEService {
       try {
         this.stopMonitoring();
 
-        // Prefer the current device when it is still connected. Asking the
-        // manager for devices filtered by SERVICE_UUID can omit a perfectly
-        // live connection whose GATT cache was lost after Android restores the
-        // app process—the exact state in which we need discovery to run again.
         const currentDeviceIsConnected =
           this.device?.id === parsed.data && (await this.isConnected());
         const connectedDevices = currentDeviceIsConnected
@@ -538,9 +517,43 @@ class BLEService {
   }
 
   // ==========================
+  // Force Reconnect
+  // Used when a "service not found" (stale GATT cache) error is
+  // detected. Fully tears the connection down with cancelConnection()
+  // before reconnecting, instead of reusing the existing device
+  // object the way autoConnect()'s "already connected" shortcut does.
+  // A real disconnect/reconnect cycle is what actually gets Android
+  // to drop its stale cached service table.
+  // ==========================
+  async forceReconnect(deviceId) {
+    console.log("Forcing hard reconnect due to stale GATT state");
+
+    this.stopMonitoring();
+
+    if (this.device) {
+      try {
+        await this.device.cancelConnection();
+      } catch (err) {
+        console.log(
+          "cancelConnection during forceReconnect failed:",
+          this.describeBleError(err),
+        );
+      }
+    }
+
+    this.device = null;
+    this.connectionPromise = null;
+
+    // Give Android a moment to actually release the GATT connection
+    // before reconnecting — reconnecting immediately can hand back
+    // the same stale cache instead of a fresh one.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    return this.autoConnect(deviceId);
+  }
+
+  // ==========================
   // Is Connected
-  // FIX: wrapped in try/catch so a device that has dropped at the
-  // native BLE stack level doesn't throw here — just reports false.
   // ==========================
   async isConnected() {
     if (!this.device) return false;
@@ -568,17 +581,7 @@ class BLEService {
 
   // ==========================
   // Health Metrics
-  // FIX: remove any existing subscription before creating a new one,
-  // otherwise calling monitorHealthMetrics() twice leaks the old listener.
-  // Zod (schemas live in BLEService.schema.js) validates the raw
-  // payload shape and numeric ranges first, filtering out anything
-  // structurally malformed. The surviving hr/spo2/temperature samples
-  // are then passed through per-channel Kalman filters so a
-  // one-off garbage reading gets smoothed against the recent trend
-  // instead of appearing as a spike in the UI. Battery and steps
-  // pass through unfiltered since they're not noisy analog signals.
   // ==========================
-
   monitorHealthMetrics(callback: any, options: any = {}) {
     const {
       replaceExisting = true,
@@ -590,7 +593,6 @@ class BLEService {
       goalWalkingSpeedKmh = DEFAULT_GOAL_WALKING_SPEED_KMH,
       waterGoalLiters = DEFAULT_WATER_GOAL_LITERS,
       waterIntakeLiters = 0,
-      // User profile for BP estimation (with defaults)
       age = 30,
       height = 170,
       weight = 70,
@@ -618,6 +620,36 @@ class BLEService {
       (error, characteristic) => {
         if (error) {
           this.subscription = null;
+
+          // Stale GATT cache: soft-restarting the monitor on the same
+          // connection will just fail again with the same error. Force
+          // a real disconnect/reconnect instead.
+          if (this.isServiceNotFoundError(error)) {
+            const staleDeviceId = this.device?.id;
+            this.clearMonitorRestart();
+
+            if (staleDeviceId) {
+              this.monitorRestartTimer = setTimeout(() => {
+                this.monitorRestartTimer = null;
+                this.forceReconnect(staleDeviceId)
+                  .then(() => {
+                    this.monitorHealthMetrics(callback, {
+                      ...options,
+                      replaceExisting: false,
+                    });
+                  })
+                  .catch((err) =>
+                    console.log(
+                      "forceReconnect after service-not-found failed:",
+                      this.describeBleError(err),
+                    ),
+                  );
+              }, restartDelay);
+            }
+
+            callback(error, null);
+            return;
+          }
 
           if (restartOnCancel && this.isMonitorCancellationError(error)) {
             this.scheduleMonitorRestart(callback, {
@@ -679,11 +711,6 @@ class BLEService {
             hrv: validHrv,
           } = readingResult.data;
 
-          // The device sends 0 for hr/spo2/temp/hrv while that specific
-          // sensor hasn't produced a real reading yet, or drops one
-          // mid-stream. Treat 0 as "not measured this tick" — don't
-          // feed it into the Kalman filter, and flag it so the UI can
-          // show "measuring..." for that one parameter.
           const hrHasReading = validHr > 0;
           const spo2HasReading = validSpo2 > 0;
           const tempHasReading = validTempC > 0;
@@ -700,7 +727,6 @@ class BLEService {
           const hrvReady = this.hrvFilter.value !== null;
           const allReady = hrReady && spo2Ready && tempReady && hrvReady;
 
-          // Per-parameter "still waiting on this sensor" flags.
           const hrMeasuring = !hrReady;
           const spo2Measuring = !spo2Ready;
           const tempMeasuring = !tempReady;
@@ -725,19 +751,16 @@ class BLEService {
           const calories = Number((validSteps * 0.04).toFixed(2));
           const distance = Number(((validSteps * 0.75) / 1000).toFixed(2));
 
-          // Only trust stress once hr, spo2, temp, AND hrv have each given
-          // us a real reading — one sensor lagging shouldn't poison it.
           const rawStress = allReady
             ? calculateStress({
                 hr: smoothedHr,
                 hrv: smoothedHrv,
                 spo2: smoothedSpo2,
                 temperature: smoothedTempC,
-                activity: 0, // Default activity to 0
+                activity: 0,
               })
             : { score: 0, level: "Normal" as const };
 
-          // Estimate blood pressure when all sensors are ready
           const bpEstimate = allReady
             ? estimateBP({
                 hr: smoothedHr,
@@ -760,7 +783,6 @@ class BLEService {
             ? { ...bpEstimate, measuring: false }
             : { systolic: "N/A", diastolic: "N/A", map: "N/A", confidence: "N/A", measuring: true };
 
-          // Estimate VO2Max when all sensors are ready
           const vo2MaxEstimate = allReady
             ? estimateVO2Max({
                 hr: smoothedHr,
@@ -805,7 +827,6 @@ class BLEService {
               celsius: smoothedTempC,
               fahrenheit: tempF,
               kelvin: tempK,
-              // Temp status only needs temp itself, not hr/spo2.
               bodyTemperatureStatus: tempReady
                 ? healthScores.bodyTemperatureStatus
                 : "N/A",
@@ -823,7 +844,6 @@ class BLEService {
             stress: {
               stressScore: allReady ? rawStress.score : "N/A",
               stressLevel: allReady ? rawStress.level : "N/A",
-              // These blend hr+spo2+temp+stress, so they wait on allReady too.
               readinessScore: allReady ? healthScores.readinessScore : "N/A",
               productivityScore: allReady
                 ? healthScores.productivityScore
@@ -902,6 +922,15 @@ class BLEService {
     );
   }
 
+  // Detects the stale-GATT-cache case: BLE errorCode 302 ("Service
+  // ... not found") on a connection Android still reports as
+  // connected. Not recoverable by restarting the monitor alone —
+  // route these to forceReconnect() instead.
+  isServiceNotFoundError(error) {
+    const message = String(error?.message || error || "").toLowerCase();
+    return error?.errorCode === 302 || message.includes("not found");
+  }
+
   scheduleMonitorRestart(callback, options) {
     this.clearMonitorRestart();
 
@@ -937,7 +966,6 @@ class BLEService {
 
     const pad = (n) => String(n).padStart(2, "0");
 
-    // Format: YYYY-MM-DD HH:mm:ss
     const timeString =
       `${now.getFullYear()}-` +
       `${pad(now.getMonth() + 1)}-` +
@@ -953,10 +981,6 @@ class BLEService {
 
   // ==========================
   // Write Command
-  // FIX: characteristic UUID is now a parameter instead of being
-  // hardcoded to CHARACTERISTICS.reset, so this can actually send
-  // to any characteristic. Defaults to CHARACTERISTICS.reset to
-  // preserve existing call sites that don't pass one.
   // ==========================
   async sendCommand(base64Command, characteristicUUID = CHARACTERISTICS.reset) {
     if (!this.device) throw new Error("No Device Connected");
@@ -1046,8 +1070,6 @@ class BLEService {
 
   // ==========================
   // Destroy
-  // FIX: clear this.device so a reused instance doesn't hold a
-  // stale reference after destroy() has torn down the manager.
   // ==========================
   destroy() {
     this.stopMonitoring();
