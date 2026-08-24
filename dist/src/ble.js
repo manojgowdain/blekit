@@ -467,8 +467,6 @@ var BLEService = class {
   }
   // ==========================
   // Bluetooth State Listener
-  // Exposes the shared manager's state stream so the app never
-  // has to instantiate a second BleManager.
   // ==========================
   onStateChange(callback, emitCurrentState = true) {
     return this.manager.onStateChange(callback, emitCurrentState);
@@ -500,8 +498,6 @@ var BLEService = class {
   }
   // ==========================
   // Connect
-  // Expects the full device object returned from scanDevices(),
-  // since it calls device.connect() directly.
   // ==========================
   async connect(device) {
     const hasPermission = await this.requestPermissions();
@@ -524,8 +520,16 @@ var BLEService = class {
   }
   // ==========================
   // Auto Connect
-  // Takes a raw deviceId (e.g. from storage) instead of a device
-  // object, since there's no live scan result to call .connect() on.
+  // NOTE: `currentDeviceIsConnected` reuses the existing device/GATT
+  // handle without a full disconnect+reconnect. If the peripheral
+  // reset or briefly dropped at the radio level while Android's BLE
+  // stack kept the link "connected", the cached service table can go
+  // stale (discoverAllServicesAndCharacteristics() succeeds but later
+  // characteristic ops fail with "service not found", errorCode 302).
+  // That case is NOT recoverable by calling autoConnect again — it
+  // needs forceReconnect() to actually tear the link down. See the
+  // monitorHealthMetrics error handler below, which routes
+  // service-not-found errors there instead of a soft monitor restart.
   // ==========================
   async autoConnect(deviceId) {
     const hasPermission = await this.requestPermissions();
@@ -571,9 +575,34 @@ var BLEService = class {
     return this.connectionPromise;
   }
   // ==========================
+  // Force Reconnect
+  // Used when a "service not found" (stale GATT cache) error is
+  // detected. Fully tears the connection down with cancelConnection()
+  // before reconnecting, instead of reusing the existing device
+  // object the way autoConnect()'s "already connected" shortcut does.
+  // A real disconnect/reconnect cycle is what actually gets Android
+  // to drop its stale cached service table.
+  // ==========================
+  async forceReconnect(deviceId) {
+    console.log("Forcing hard reconnect due to stale GATT state");
+    this.stopMonitoring();
+    if (this.device) {
+      try {
+        await this.device.cancelConnection();
+      } catch (err) {
+        console.log(
+          "cancelConnection during forceReconnect failed:",
+          this.describeBleError(err)
+        );
+      }
+    }
+    this.device = null;
+    this.connectionPromise = null;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return this.autoConnect(deviceId);
+  }
+  // ==========================
   // Is Connected
-  // FIX: wrapped in try/catch so a device that has dropped at the
-  // native BLE stack level doesn't throw here — just reports false.
   // ==========================
   async isConnected() {
     if (!this.device) return false;
@@ -596,15 +625,6 @@ var BLEService = class {
   }
   // ==========================
   // Health Metrics
-  // FIX: remove any existing subscription before creating a new one,
-  // otherwise calling monitorHealthMetrics() twice leaks the old listener.
-  // Zod (schemas live in BLEService.schema.js) validates the raw
-  // payload shape and numeric ranges first, filtering out anything
-  // structurally malformed. The surviving hr/spo2/temperature samples
-  // are then passed through per-channel Kalman filters so a
-  // one-off garbage reading gets smoothed against the recent trend
-  // instead of appearing as a spike in the UI. Battery and steps
-  // pass through unfiltered since they're not noisy analog signals.
   // ==========================
   monitorHealthMetrics(callback, options = {}) {
     const {
@@ -617,7 +637,6 @@ var BLEService = class {
       goalWalkingSpeedKmh = DEFAULT_GOAL_WALKING_SPEED_KMH,
       waterGoalLiters = DEFAULT_WATER_GOAL_LITERS,
       waterIntakeLiters = 0,
-      // User profile for BP estimation (with defaults)
       age = 30,
       height = 170,
       weight = 70,
@@ -639,6 +658,28 @@ var BLEService = class {
       (error, characteristic) => {
         if (error) {
           this.subscription = null;
+          if (this.isServiceNotFoundError(error)) {
+            const staleDeviceId = this.device?.id;
+            this.clearMonitorRestart();
+            if (staleDeviceId) {
+              this.monitorRestartTimer = setTimeout(() => {
+                this.monitorRestartTimer = null;
+                this.forceReconnect(staleDeviceId).then(() => {
+                  this.monitorHealthMetrics(callback, {
+                    ...options,
+                    replaceExisting: false
+                  });
+                }).catch(
+                  (err) => console.log(
+                    "forceReconnect after service-not-found failed:",
+                    this.describeBleError(err)
+                  )
+                );
+              }, restartDelay);
+            }
+            callback(error, null);
+            return;
+          }
           if (restartOnCancel && this.isMonitorCancellationError(error)) {
             this.scheduleMonitorRestart(callback, {
               ...options,
@@ -721,7 +762,6 @@ var BLEService = class {
             spo2: smoothedSpo2,
             temperature: smoothedTempC,
             activity: 0
-            // Default activity to 0
           }) : { score: 0, level: "Normal" };
           const bpEstimate = allReady ? estimateBP({
             hr: smoothedHr,
@@ -765,7 +805,6 @@ var BLEService = class {
               celsius: smoothedTempC,
               fahrenheit: tempF,
               kelvin: tempK,
-              // Temp status only needs temp itself, not hr/spo2.
               bodyTemperatureStatus: tempReady ? healthScores.bodyTemperatureStatus : "N/A",
               measuring: tempMeasuring
             },
@@ -781,7 +820,6 @@ var BLEService = class {
             stress: {
               stressScore: allReady ? rawStress.score : "N/A",
               stressLevel: allReady ? rawStress.level : "N/A",
-              // These blend hr+spo2+temp+stress, so they wait on allReady too.
               readinessScore: allReady ? healthScores.readinessScore : "N/A",
               productivityScore: allReady ? healthScores.productivityScore : "N/A",
               overallHealthScore: allReady ? healthScores.overallHealthScore : "N/A",
@@ -844,6 +882,14 @@ var BLEService = class {
     const message = String(error?.message || error || "").toLowerCase();
     return message.includes("operation was cancelled") || message.includes("operation canceled");
   }
+  // Detects the stale-GATT-cache case: BLE errorCode 302 ("Service
+  // ... not found") on a connection Android still reports as
+  // connected. Not recoverable by restarting the monitor alone —
+  // route these to forceReconnect() instead.
+  isServiceNotFoundError(error) {
+    const message = String(error?.message || error || "").toLowerCase();
+    return error?.errorCode === 302 || message.includes("not found");
+  }
   scheduleMonitorRestart(callback, options) {
     this.clearMonitorRestart();
     this.monitorRestartTimer = setTimeout(async () => {
@@ -876,10 +922,6 @@ var BLEService = class {
   }
   // ==========================
   // Write Command
-  // FIX: characteristic UUID is now a parameter instead of being
-  // hardcoded to CHARACTERISTICS.reset, so this can actually send
-  // to any characteristic. Defaults to CHARACTERISTICS.reset to
-  // preserve existing call sites that don't pass one.
   // ==========================
   async sendCommand(base64Command, characteristicUUID = CHARACTERISTICS.reset) {
     if (!this.device) throw new Error("No Device Connected");
@@ -953,8 +995,6 @@ var BLEService = class {
   }
   // ==========================
   // Destroy
-  // FIX: clear this.device so a reused instance doesn't hold a
-  // stale reference after destroy() has torn down the manager.
   // ==========================
   destroy() {
     this.stopMonitoring();

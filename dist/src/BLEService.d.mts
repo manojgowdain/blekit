@@ -21,6 +21,7 @@ declare class BLEService {
     stopScan(): void;
     connect(device: any): Promise<any>;
     autoConnect(deviceId: any): Promise<any>;
+    forceReconnect(deviceId: any): Promise<any>;
     isConnected(): Promise<any>;
     disconnect(): Promise<void>;
     monitorHealthMetrics(callback: any, options?: any): any;
@@ -28,6 +29,7 @@ declare class BLEService {
     hasActiveMonitor(): boolean;
     clearMonitorRestart(): void;
     isMonitorCancellationError(error: any): boolean;
+    isServiceNotFoundError(error: any): boolean;
     scheduleMonitorRestart(callback: any, options: any): void;
     describeBleError(error: any): string;
     syncDeviceTime(): Promise<any>;
