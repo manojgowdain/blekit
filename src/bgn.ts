@@ -138,14 +138,34 @@ const ensureBackgroundBleConnection = async ({
     return false;
   }
 
-  const alreadyConnected = await BLE.isConnected();
+  // A connected BLE link does not guarantee that this JS instance has a
+  // discovered GATT database. This is common after Android restores a
+  // background process: isConnected() is true, while a subsequent monitor
+  // fails with "Service ... not found". Also ensure the active connection is
+  // for the device requested by the background task.
+  const connectedDevice = BLE.getConnectedDevice();
+  const alreadyConnected =
+    connectedDevice?.id === activeDeviceId && (await BLE.isConnected());
 
   if (!alreadyConnected) {
     BLE.stopMonitoring();
     await BLE.autoConnect(activeDeviceId);
     emitBleStatus({ connected: true, deviceId: activeDeviceId, reconnected: true });
   } else {
-    emitBleStatus({ connected: true, deviceId: activeDeviceId, reconnected: false });
+    // A missing subscription means the prior monitor failed or was cancelled.
+    // Re-run discovery before creating it again; merely reusing the native
+    // connection leaves the service cache unavailable after process restore.
+    if (!BLE.hasActiveMonitor()) {
+      await BLE.autoConnect(activeDeviceId);
+      emitBleStatus({
+        connected: true,
+        deviceId: activeDeviceId,
+        reconnected: false,
+        servicesRediscovered: true,
+      });
+    } else {
+      emitBleStatus({ connected: true, deviceId: activeDeviceId, reconnected: false });
+    }
   }
 
   if (BLE.hasActiveMonitor()) {

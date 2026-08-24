@@ -495,10 +495,18 @@ class BLEService {
       try {
         this.stopMonitoring();
 
-        const connectedDevices = await this.manager.connectedDevices([
-          SERVICE_UUID,
-        ]);
+        // Prefer the current device when it is still connected. Asking the
+        // manager for devices filtered by SERVICE_UUID can omit a perfectly
+        // live connection whose GATT cache was lost after Android restores the
+        // app process—the exact state in which we need discovery to run again.
+        const currentDeviceIsConnected =
+          this.device?.id === parsed.data && (await this.isConnected());
+        const connectedDevices = currentDeviceIsConnected
+          ? []
+          : await this.manager.connectedDevices([SERVICE_UUID]);
+
         this.device =
+          (currentDeviceIsConnected ? this.device : null) ||
           connectedDevices.find((device) => device.id === parsed.data) ||
           (await this.manager.connectToDevice(parsed.data, {
             autoConnect: false,

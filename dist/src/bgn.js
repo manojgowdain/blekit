@@ -546,10 +546,9 @@ var BLEService = class {
     this.connectionPromise = (async () => {
       try {
         this.stopMonitoring();
-        const connectedDevices = await this.manager.connectedDevices([
-          SERVICE_UUID
-        ]);
-        this.device = connectedDevices.find((device) => device.id === parsed.data) || await this.manager.connectToDevice(parsed.data, {
+        const currentDeviceIsConnected = this.device?.id === parsed.data && await this.isConnected();
+        const connectedDevices = currentDeviceIsConnected ? [] : await this.manager.connectedDevices([SERVICE_UUID]);
+        this.device = (currentDeviceIsConnected ? this.device : null) || connectedDevices.find((device) => device.id === parsed.data) || await this.manager.connectToDevice(parsed.data, {
           autoConnect: false,
           timeout: 15e3
         });
@@ -1066,13 +1065,24 @@ var ensureBackgroundBleConnection = async ({
       emitBleStatus({ connected: false, reason: "missing-device-id" });
       return false;
     }
-    const alreadyConnected = await BLEService_default.isConnected();
+    const connectedDevice = BLEService_default.getConnectedDevice();
+    const alreadyConnected = connectedDevice?.id === activeDeviceId && await BLEService_default.isConnected();
     if (!alreadyConnected) {
       BLEService_default.stopMonitoring();
       await BLEService_default.autoConnect(activeDeviceId);
       emitBleStatus({ connected: true, deviceId: activeDeviceId, reconnected: true });
     } else {
-      emitBleStatus({ connected: true, deviceId: activeDeviceId, reconnected: false });
+      if (!BLEService_default.hasActiveMonitor()) {
+        await BLEService_default.autoConnect(activeDeviceId);
+        emitBleStatus({
+          connected: true,
+          deviceId: activeDeviceId,
+          reconnected: false,
+          servicesRediscovered: true
+        });
+      } else {
+        emitBleStatus({ connected: true, deviceId: activeDeviceId, reconnected: false });
+      }
     }
     if (BLEService_default.hasActiveMonitor()) {
       return true;

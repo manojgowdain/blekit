@@ -731,10 +731,9 @@ var BLEService = class {
     this.connectionPromise = (async () => {
       try {
         this.stopMonitoring();
-        const connectedDevices = await this.manager.connectedDevices([
-          SERVICE_UUID
-        ]);
-        this.device = connectedDevices.find((device) => device.id === parsed.data) || await this.manager.connectToDevice(parsed.data, {
+        const currentDeviceIsConnected = this.device?.id === parsed.data && await this.isConnected();
+        const connectedDevices = currentDeviceIsConnected ? [] : await this.manager.connectedDevices([SERVICE_UUID]);
+        this.device = (currentDeviceIsConnected ? this.device : null) || connectedDevices.find((device) => device.id === parsed.data) || await this.manager.connectToDevice(parsed.data, {
           autoConnect: false,
           timeout: 15e3
         });
