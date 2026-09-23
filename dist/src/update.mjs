@@ -215,7 +215,8 @@ var SERVICE_UUID = "19b10000-e8f2-537e-4f6c-d104768a1214";
 var CHARACTERISTICS = {
   data: "19b10001-e8f2-537e-4f6c-d104768a1214",
   reset: "19b10002-e8f2-537e-4f6c-d104768a1214",
-  time: "19b10003-e8f2-537e-4f6c-d104768a1214"
+  time: "19b10003-e8f2-537e-4f6c-d104768a1214",
+  hardware: "19b10004-e8f2-537e-4f6c-d104768a1214"
 };
 
 // src/KalmanFilter.ts
@@ -356,16 +357,7 @@ function calculateGoalPercent(value, goal) {
   if (!Number.isFinite(goal) || goal <= 0) return 0;
   return clampScore(Math.min(value / goal * 100, 100));
 }
-function estimateBP({
-  hr,
-  hrv,
-  age,
-  height,
-  weight,
-  sex,
-  spo2,
-  temperature
-}) {
+function estimateBP({ hr, hrv, age, height, weight, sex, spo2, temperature }) {
   if (!Number.isFinite(hr) || !Number.isFinite(hrv) || !Number.isFinite(age) || !Number.isFinite(height) || !Number.isFinite(weight)) {
     throw new Error("Invalid BP input");
   }
@@ -376,9 +368,7 @@ function estimateBP({
   let diastolic = 58 + age * 0.2 + bmi * 0.25 + hr * 0.06 + sexFactor * 0.4 - hrv * 0.025;
   systolic = Math.round(Math.max(80, Math.min(200, systolic)));
   diastolic = Math.round(Math.max(40, Math.min(130, diastolic)));
-  const map = Math.round(
-    diastolic + (systolic - diastolic) / 3
-  );
+  const map = Math.round(diastolic + (systolic - diastolic) / 3);
   let confidence = 50;
   if (spo2 >= 95) confidence += 10;
   if (hr >= 50 && hr <= 100) confidence += 10;
@@ -392,37 +382,14 @@ function estimateBP({
     confidence
   };
 }
-function calculateStress({
-  hr,
-  hrv,
-  spo2,
-  temperature,
-  activity = 0
-}) {
-  const hrStress = Math.min(
-    100,
-    Math.max(0, (hr - 60) / 60 * 100)
-  );
-  const hrvStress = Math.min(
-    100,
-    Math.max(0, (60 - hrv) / 60 * 100)
-  );
-  const spo2Stress = Math.min(
-    100,
-    Math.max(0, (95 - spo2) * 20)
-  );
-  const temperatureStress = Math.min(
-    100,
-    Math.abs(temperature - 36.7) * 20
-  );
-  const activityFactor = Math.min(
-    100,
-    Math.max(0, activity)
-  );
+function calculateStress({ hr, hrv, spo2, temperature, activity = 0 }) {
+  const hrStress = Math.min(100, Math.max(0, (hr - 60) / 60 * 100));
+  const hrvStress = Math.min(100, Math.max(0, (60 - hrv) / 60 * 100));
+  const spo2Stress = Math.min(100, Math.max(0, (95 - spo2) * 20));
+  const temperatureStress = Math.min(100, Math.abs(temperature - 36.7) * 20);
+  const activityFactor = Math.min(100, Math.max(0, activity));
   let stress = hrStress * 0.3 + hrvStress * 0.4 + spo2Stress * 0.05 + temperatureStress * 0.05 + activityFactor * 0.2;
-  stress = Math.round(
-    Math.max(0, Math.min(100, stress))
-  );
+  stress = Math.round(Math.max(0, Math.min(100, stress)));
   let level;
   if (stress < 25) {
     level = "Relaxed";
@@ -438,14 +405,7 @@ function calculateStress({
     level
   };
 }
-function estimateVO2Max({
-  hr,
-  hrv,
-  age,
-  sex,
-  restingHr = 60,
-  maxHr = 220
-}) {
+function estimateVO2Max({ hr, hrv, age, sex, restingHr = 60, maxHr = 220 }) {
   if (!Number.isFinite(hr) || !Number.isFinite(hrv) || !Number.isFinite(age) || !Number.isFinite(restingHr) || !Number.isFinite(maxHr)) {
     throw new Error("Invalid VO2Max input");
   }
@@ -576,6 +536,7 @@ var BLEService = class {
   manager;
   device;
   subscription;
+  hardwareSubscription;
   monitorRestartTimer;
   monitorStartedAt;
   connectionPromise;
@@ -589,22 +550,40 @@ var BLEService = class {
     });
     this.device = null;
     this.subscription = null;
+    this.hardwareSubscription = null;
     this.monitorRestartTimer = null;
     this.monitorStartedAt = null;
     this.connectionPromise = null;
     this._resetFilters();
   }
+  /* ============================================================
+     RESET FILTERS
+  ============================================================ */
   _resetFilters() {
-    this.hrFilter = new KalmanFilter({ R: 4, Q: 0.05 });
-    this.spo2Filter = new KalmanFilter({ R: 2, Q: 0.02 });
-    this.tempFilter = new KalmanFilter({ R: 0.5, Q: 0.01 });
-    this.hrvFilter = new KalmanFilter({ R: 10, Q: 0.1 });
+    this.hrFilter = new KalmanFilter({
+      R: 4,
+      Q: 0.05
+    });
+    this.spo2Filter = new KalmanFilter({
+      R: 2,
+      Q: 0.02
+    });
+    this.tempFilter = new KalmanFilter({
+      R: 0.5,
+      Q: 0.01
+    });
+    this.hrvFilter = new KalmanFilter({
+      R: 10,
+      Q: 0.1
+    });
   }
-  // ==========================
-  // Request Permissions
-  // ==========================
+  /* ============================================================
+     PERMISSIONS
+  ============================================================ */
   async requestPermissions() {
-    if (Platform.OS !== "android") return true;
+    if (Platform.OS !== "android") {
+      return true;
+    }
     if (Platform.Version >= 31) {
       const result2 = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -618,15 +597,15 @@ var BLEService = class {
     );
     return result === "granted";
   }
-  // ==========================
-  // Bluetooth State Listener
-  // ==========================
+  /* ============================================================
+     BLUETOOTH STATE
+  ============================================================ */
   onStateChange(callback, emitCurrentState = true) {
     return this.manager.onStateChange(callback, emitCurrentState);
   }
-  // ==========================
-  // Scan Devices
-  // ==========================
+  /* ============================================================
+     SCAN
+  ============================================================ */
   scanDevices(onDevice, onFinish, timeout = 5e3) {
     const found = {};
     this.manager.startDeviceScan([SERVICE_UUID], null, (error, device) => {
@@ -649,9 +628,9 @@ var BLEService = class {
   stopScan() {
     this.manager.stopDeviceScan();
   }
-  // ==========================
-  // Connect
-  // ==========================
+  /* ============================================================
+     CONNECT
+  ============================================================ */
   async connect(device) {
     const hasPermission = await this.requestPermissions();
     if (!hasPermission) {
@@ -671,19 +650,9 @@ var BLEService = class {
     await this.syncDeviceTime();
     return this.device;
   }
-  // ==========================
-  // Auto Connect
-  // NOTE: `currentDeviceIsConnected` reuses the existing device/GATT
-  // handle without a full disconnect+reconnect. If the peripheral
-  // reset or briefly dropped at the radio level while Android's BLE
-  // stack kept the link "connected", the cached service table can go
-  // stale (discoverAllServicesAndCharacteristics() succeeds but later
-  // characteristic ops fail with "service not found", errorCode 302).
-  // That case is NOT recoverable by calling autoConnect again — it
-  // needs forceReconnect() to actually tear the link down. See the
-  // monitorHealthMetrics error handler below, which routes
-  // service-not-found errors there instead of a soft monitor restart.
-  // ==========================
+  /* ============================================================
+     AUTO CONNECT
+  ============================================================ */
   async autoConnect(deviceId) {
     const hasPermission = await this.requestPermissions();
     if (!hasPermission) {
@@ -719,6 +688,7 @@ var BLEService = class {
       } catch (err) {
         console.log("autoConnect failed:", this.describeBleError(err));
         this.stopMonitoring();
+        this.stopReceivingHardwareData();
         this.device = null;
         throw err;
       } finally {
@@ -727,18 +697,13 @@ var BLEService = class {
     })();
     return this.connectionPromise;
   }
-  // ==========================
-  // Force Reconnect
-  // Used when a "service not found" (stale GATT cache) error is
-  // detected. Fully tears the connection down with cancelConnection()
-  // before reconnecting, instead of reusing the existing device
-  // object the way autoConnect()'s "already connected" shortcut does.
-  // A real disconnect/reconnect cycle is what actually gets Android
-  // to drop its stale cached service table.
-  // ==========================
+  /* ============================================================
+     FORCE RECONNECT
+  ============================================================ */
   async forceReconnect(deviceId) {
     console.log("Forcing hard reconnect due to stale GATT state");
     this.stopMonitoring();
+    this.stopReceivingHardwareData();
     if (this.device) {
       try {
         await this.device.cancelConnection();
@@ -754,9 +719,9 @@ var BLEService = class {
     await new Promise((resolve) => setTimeout(resolve, 500));
     return this.autoConnect(deviceId);
   }
-  // ==========================
-  // Is Connected
-  // ==========================
+  /* ============================================================
+     IS CONNECTED
+  ============================================================ */
   async isConnected() {
     if (!this.device) return false;
     try {
@@ -766,19 +731,20 @@ var BLEService = class {
       return false;
     }
   }
-  // ==========================
-  // Disconnect
-  // ==========================
+  /* ============================================================
+     DISCONNECT
+  ============================================================ */
   async disconnect() {
     if (!this.device) return;
     this.stopMonitoring();
+    this.stopReceivingHardwareData();
     await this.device.cancelConnection();
     this.device = null;
     await this.clearRememberedDeviceId();
   }
-  // ==========================
-  // Health Metrics
-  // ==========================
+  /* ============================================================
+     HEALTH METRICS
+  ============================================================ */
   monitorHealthMetrics(callback, options = {}) {
     const {
       replaceExisting = true,
@@ -888,10 +854,18 @@ var BLEService = class {
           const spo2HasReading = validSpo2 > 0;
           const tempHasReading = validTempC > 0;
           const hrvHasReading = validHrv > 0;
-          if (hrHasReading) this.hrFilter.filter(validHr);
-          if (spo2HasReading) this.spo2Filter.filter(validSpo2);
-          if (tempHasReading) this.tempFilter.filter(validTempC);
-          if (hrvHasReading) this.hrvFilter.filter(validHrv);
+          if (hrHasReading) {
+            this.hrFilter.filter(validHr);
+          }
+          if (spo2HasReading) {
+            this.spo2Filter.filter(validSpo2);
+          }
+          if (tempHasReading) {
+            this.tempFilter.filter(validTempC);
+          }
+          if (hrvHasReading) {
+            this.hrvFilter.filter(validHrv);
+          }
           const hrReady = this.hrFilter.value !== null;
           const spo2Ready = this.spo2Filter.value !== null;
           const tempReady = this.tempFilter.value !== null;
@@ -915,7 +889,10 @@ var BLEService = class {
             spo2: smoothedSpo2,
             temperature: smoothedTempC,
             activity: 0
-          }) : { score: 0, level: "Normal" };
+          }) : {
+            score: 0,
+            level: "Normal"
+          };
           const bpEstimate = allReady ? estimateBP({
             hr: smoothedHr,
             hrv: smoothedHrv,
@@ -926,14 +903,30 @@ var BLEService = class {
             spo2: smoothedSpo2,
             temperature: smoothedTempC
           }) : null;
-          const bloodPressure = bpEstimate ? { ...bpEstimate, measuring: false } : { systolic: "N/A", diastolic: "N/A", map: "N/A", confidence: "N/A", measuring: true };
+          const bloodPressure = bpEstimate ? {
+            ...bpEstimate,
+            measuring: false
+          } : {
+            systolic: "N/A",
+            diastolic: "N/A",
+            map: "N/A",
+            confidence: "N/A",
+            measuring: true
+          };
           const vo2MaxEstimate = allReady ? estimateVO2Max({
             hr: smoothedHr,
             hrv: smoothedHrv,
             age,
             sex
           }) : null;
-          const vo2Max = vo2MaxEstimate ? { ...vo2MaxEstimate, measuring: false } : { value: "N/A", level: "N/A", measuring: true };
+          const vo2Max = vo2MaxEstimate ? {
+            ...vo2MaxEstimate,
+            measuring: false
+          } : {
+            value: "N/A",
+            level: "N/A",
+            measuring: true
+          };
           const elapsedHours = this.monitorStartedAt ? (Date.now() - this.monitorStartedAt) / 36e5 : 0;
           const healthScores = calculateHealthScores({
             hr: smoothedHr,
@@ -952,8 +945,14 @@ var BLEService = class {
             waterIntakeLiters
           });
           const healthMetrics = {
-            heartRate: { value: smoothedHr, measuring: hrMeasuring },
-            spo2: { value: smoothedSpo2, measuring: spo2Measuring },
+            heartRate: {
+              value: smoothedHr,
+              measuring: hrMeasuring
+            },
+            spo2: {
+              value: smoothedSpo2,
+              measuring: spo2Measuring
+            },
             temperature: {
               celsius: smoothedTempC,
               fahrenheit: tempF,
@@ -1013,7 +1012,11 @@ var BLEService = class {
         }
       }
     );
+    return this.subscription;
   }
+  /* ============================================================
+     STOP HEALTH MONITOR
+  ============================================================ */
   stopMonitoring() {
     this.clearMonitorRestart();
     if (this.subscription) {
@@ -1025,6 +1028,71 @@ var BLEService = class {
   hasActiveMonitor() {
     return Boolean(this.subscription);
   }
+  /* ============================================================
+     HARDWARE DATA
+  ============================================================ */
+  async receiveHardwareData(callback) {
+    if (!this.device) {
+      callback(null, new Error("No Device Connected"));
+      return null;
+    }
+    this.stopReceivingHardwareData();
+    try {
+      this.hardwareSubscription = this.device.monitorCharacteristicForService(
+        SERVICE_UUID,
+        CHARACTERISTICS.hardware,
+        (error, characteristic) => {
+          if (error) {
+            this.hardwareSubscription = null;
+            callback(null, error);
+            return;
+          }
+          if (!characteristic?.value) {
+            return;
+          }
+          try {
+            const base64Data = characteristic.value;
+            const decodedData = atob(base64Data);
+            callback(decodedData);
+          } catch (err) {
+            callback(
+              null,
+              err instanceof Error ? err : new Error("Failed to decode hardware data")
+            );
+          }
+        }
+      );
+      return this.hardwareSubscription;
+    } catch (err) {
+      callback(
+        null,
+        err instanceof Error ? err : new Error("Failed to monitor hardware characteristic")
+      );
+      return null;
+    }
+  }
+  /* ============================================================
+     STOP HARDWARE DATA
+  ============================================================ */
+  async stopReceivingHardwareData() {
+    if (this.hardwareSubscription) {
+      try {
+        this.hardwareSubscription.remove();
+      } catch (err) {
+        console.log("Failed to remove hardware subscription:", err);
+      }
+      this.hardwareSubscription = null;
+    }
+  }
+  /* ============================================================
+     HARDWARE MONITOR STATUS
+  ============================================================ */
+  async hasActiveHardwareMonitor() {
+    return Boolean(this.hardwareSubscription);
+  }
+  /* ============================================================
+     MONITOR RESTART
+  ============================================================ */
   clearMonitorRestart() {
     if (this.monitorRestartTimer) {
       clearTimeout(this.monitorRestartTimer);
@@ -1035,10 +1103,6 @@ var BLEService = class {
     const message = String(error?.message || error || "").toLowerCase();
     return message.includes("operation was cancelled") || message.includes("operation canceled");
   }
-  // Detects the stale-GATT-cache case: BLE errorCode 302 ("Service
-  // ... not found") on a connection Android still reports as
-  // connected. Not recoverable by restarting the monitor alone —
-  // route these to forceReconnect() instead.
   isServiceNotFoundError(error) {
     const message = String(error?.message || error || "").toLowerCase();
     return error?.errorCode === 302 || message.includes("not found");
@@ -1047,13 +1111,20 @@ var BLEService = class {
     this.clearMonitorRestart();
     this.monitorRestartTimer = setTimeout(async () => {
       this.monitorRestartTimer = null;
-      if (!await this.isConnected()) return;
+      if (!await this.isConnected()) {
+        return;
+      }
       console.log("BLE monitor cancelled while connected, restarting monitor");
       this.monitorHealthMetrics(callback, options);
     }, options.restartDelay);
   }
+  /* ============================================================
+     BLE ERROR DESCRIPTION
+  ============================================================ */
   describeBleError(error) {
-    if (!error) return "Unknown BLE error";
+    if (!error) {
+      return "Unknown BLE error";
+    }
     return JSON.stringify({
       message: error.message,
       reason: error.reason,
@@ -1063,6 +1134,9 @@ var BLEService = class {
       androidErrorCode: error.androidErrorCode
     });
   }
+  /* ============================================================
+     SYNC DEVICE TIME
+  ============================================================ */
   async syncDeviceTime() {
     if (!this.device) {
       throw new Error("No Device Connected");
@@ -1073,11 +1147,13 @@ var BLEService = class {
     const base64Time = btoa(timeString);
     return this.sendCommand(base64Time, CHARACTERISTICS.time);
   }
-  // ==========================
-  // Write Command
-  // ==========================
+  /* ============================================================
+     WRITE COMMAND
+  ============================================================ */
   async sendCommand(base64Command, characteristicUUID = CHARACTERISTICS.reset) {
-    if (!this.device) throw new Error("No Device Connected");
+    if (!this.device) {
+      throw new Error("No Device Connected");
+    }
     const commandResult = Base64Schema.safeParse(base64Command);
     if (!commandResult.success) {
       throw new Error(
@@ -1104,9 +1180,9 @@ var BLEService = class {
       );
     }
   }
-  // ==========================
-  // Read Characteristic
-  // ==========================
+  /* ============================================================
+     READ CHARACTERISTIC
+  ============================================================ */
   async read(uuid) {
     if (!this.device) return null;
     const uuidResult = CharacteristicUUIDSchema.safeParse(uuid);
@@ -1119,22 +1195,27 @@ var BLEService = class {
     );
     return value;
   }
-  // ==========================
-  // Get Services
-  // ==========================
+  /* ============================================================
+     GET SERVICES
+  ============================================================ */
   async getServices() {
     if (!this.device) return [];
     return await this.device.services();
   }
-  // ==========================
-  // Current Device
-  // ==========================
+  /* ============================================================
+     CURRENT DEVICE
+  ============================================================ */
   getConnectedDevice() {
     return this.device;
   }
+  /* ============================================================
+     REMEMBER DEVICE
+  ============================================================ */
   async rememberDeviceId(deviceId) {
     const parsed = DeviceIdSchema.safeParse(deviceId);
-    if (!parsed.success) return false;
+    if (!parsed.success) {
+      return false;
+    }
     await AsyncStorage.setItem(LAST_DEVICE_ID_KEY, parsed.data);
     return true;
   }
@@ -1146,11 +1227,12 @@ var BLEService = class {
   async clearRememberedDeviceId() {
     await AsyncStorage.removeItem(LAST_DEVICE_ID_KEY);
   }
-  // ==========================
-  // Destroy
-  // ==========================
+  /* ============================================================
+     DESTROY
+  ============================================================ */
   destroy() {
     this.stopMonitoring();
+    this.stopReceivingHardwareData();
     this.manager.destroy();
     this.device = null;
     this.connectionPromise = null;

@@ -54,6 +54,11 @@ export const stopScan = (): void => BLE.stopScan();
 export const sendCommand = (base64: string, characteristicUUID?: string): Promise<boolean> =>
   BLE.sendCommand(base64, characteristicUUID);
 
+
+export const receiveHardwareData = (
+  callback: (data: string | null, error?: Error) => void,
+) => BLE.receiveHardwareData(callback);
+
 export const read = (uuid: string): Promise<string> => BLE.read(uuid);
 
 export const getServices = (): any => BLE.getServices();
