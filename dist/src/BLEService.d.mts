@@ -6,6 +6,7 @@ declare class BLEService {
     manager: BleManager;
     device: any;
     subscription: any;
+    hardwareSubscription: any;
     monitorRestartTimer: any;
     monitorStartedAt: number | null;
     connectionPromise: Promise<any> | null;
@@ -27,6 +28,9 @@ declare class BLEService {
     monitorHealthMetrics(callback: any, options?: any): any;
     stopMonitoring(): void;
     hasActiveMonitor(): boolean;
+    receiveHardwareData(callback: (data: string | null, error?: Error) => void): Promise<any>;
+    stopReceivingHardwareData(): Promise<void>;
+    hasActiveHardwareMonitor(): Promise<boolean>;
     clearMonitorRestart(): void;
     isMonitorCancellationError(error: any): boolean;
     isServiceNotFoundError(error: any): boolean;

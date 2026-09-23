@@ -13,10 +13,11 @@ declare const stopMonitoring: () => void;
 declare const hasActiveMonitor: () => boolean;
 declare const stopScan: () => void;
 declare const sendCommand: (base64: string, characteristicUUID?: string) => Promise<boolean>;
+declare const receiveHardwareData: (callback: (data: string | null, error?: Error) => void) => Promise<any>;
 declare const read: (uuid: string) => Promise<string>;
 declare const getServices: () => any;
 declare const getConnectedDevice: () => any;
 declare const destroy: () => void;
 declare const unpair: () => Promise<boolean>;
 
-export { autoConnect, connect, destroy, disconnect, getConnectedDevice, getServices, hasActiveMonitor, isConnected, monitorData, monitorHealthMetrics, onStateChange, read, requestBlePermission, scanDevices, sendCommand, stopMonitoring, stopScan, unpair };
+export { autoConnect, connect, destroy, disconnect, getConnectedDevice, getServices, hasActiveMonitor, isConnected, monitorData, monitorHealthMetrics, onStateChange, read, receiveHardwareData, requestBlePermission, scanDevices, sendCommand, stopMonitoring, stopScan, unpair };

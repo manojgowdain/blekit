@@ -3,6 +3,7 @@ declare const CHARACTERISTICS: {
     data: string;
     reset: string;
     time: string;
+    hardware: string;
 };
 
 export { CHARACTERISTICS, SERVICE_UUID };
