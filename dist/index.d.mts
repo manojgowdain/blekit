@@ -4,6 +4,7 @@ export { checkForOTAUpdates } from './src/update.mjs';
 export { autoConnect, connect, destroy, disconnect, getConnectedDevice, getServices, hasActiveMonitor, isConnected, monitorData, monitorHealthMetrics, onStateChange, read, receiveHardwareData, requestBlePermission, scanDevices, sendCommand, stopMonitoring, stopScan, unpair } from './src/ble.mjs';
 export { default as useOtaUpdate } from './src/useOtaUpdate.mjs';
 export { downloadAndInstallApk, isNewVersionAvailable, requestInstallPermission, runOtaUpdate } from './src/otaUpdate.mjs';
+export { usePhoneRingtone } from './src/RingThePhone.mjs';
 export { default as getDeviceInfo } from './src/info.mjs';
 import 'react-native';
 import 'expo-notifications';

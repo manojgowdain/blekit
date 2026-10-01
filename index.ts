@@ -4,3 +4,4 @@ export * from "./src/update";
 export * from "./src/ble";
 export * from "./src/useOtaUpdate";
 export * from "./src/otaUpdate";
+export * from "./src/RingThePhone";
