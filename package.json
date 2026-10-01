@@ -39,6 +39,7 @@
     "axios": "^1.18.1",
     "base-64": "^1.0.0",
     "expo-application": "~57.0.2",
+    "expo-audio": "^57.0.5",
     "expo-background-fetch": "^57.0.5",
     "expo-battery": "^57.0.1",
     "expo-constants": "~57.0.10",
